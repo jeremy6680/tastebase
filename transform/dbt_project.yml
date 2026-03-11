@@ -1,0 +1,35 @@
+# =============================================================================
+# TasteBase — dbt project configuration
+# =============================================================================
+
+name: tastebase
+version: "1.0.0"
+config-version: 2
+
+profile: tastebase
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+analysis-paths: ["analyses"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  tastebase:
+    bronze:
+      +materialized: table
+      +schema: bronze
+
+    silver:
+      +materialized: view
+      +schema: silver
+
+    gold:
+      +materialized: table
+      +schema: gold
