@@ -19,12 +19,12 @@
 
 ## Phase 1 — Repository skeleton
 
-- [ ] Create all folders and empty `__init__.py` files
-- [ ] Create `Makefile` with all developer commands
-- [ ] Create `.env.example` with all required variables
-- [ ] Create `requirements.txt` (or `pyproject.toml`) with pinned dependencies
-- [ ] Create `docker-compose.yml` skeleton
-- [ ] Create `Dockerfile` skeleton
+- [x] Create all folders and empty `__init__.py` files
+- [x] Create `Makefile` with all developer commands
+- [x] Create `.env.example` with all required variables
+- [x] Create `requirements.txt` (or `pyproject.toml`) with pinned dependencies
+- [x] Create `docker-compose.yml` skeleton
+- [x] Create `Dockerfile` skeleton
 
 **Branch:** `feat/repo-skeleton`
 
