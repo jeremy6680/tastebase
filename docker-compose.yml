@@ -1,0 +1,67 @@
+# =============================================================================
+# TasteBase — Docker Compose
+# Services: api (FastAPI), agent (Chainlit), dashboard (Evidence.dev)
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # FastAPI backend — the only service that writes to DuckDB
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - duckdb_data:/app/data # Persist DuckDB file across restarts
+      - ./data/raw:/app/data/raw # Mount user CSV exports
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Chainlit agent UI — queries gold layer via FastAPI
+  # ---------------------------------------------------------------------------
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    command: chainlit run agent/app.py --host 0.0.0.0 --port 8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - duckdb_data:/app/data # Read-only access to DuckDB
+    env_file:
+      - .env
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Evidence.dev dashboard — reads DuckDB gold layer directly (read-only)
+  # ---------------------------------------------------------------------------
+  dashboard:
+    image: node:20-slim
+    working_dir: /app/dashboard
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 3000"
+    ports:
+      - "3000:3000"
+    volumes:
+      - duckdb_data:/app/data # Read-only access to DuckDB
+      - ./dashboard:/app/dashboard
+    env_file:
+      - .env
+    depends_on:
+      - api
+    restart: unless-stopped
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  duckdb_data:
+    driver: local
