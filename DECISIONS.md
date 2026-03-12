@@ -452,3 +452,53 @@ seeds one item per domain before each test.
 without any mocking of database logic. Each test gets a fresh state.
 The override pattern is the idiomatic FastAPI approach for dependency
 substitution in tests.
+
+---
+
+### DEC-023 — Rating tool split into search + submit (two tools, not one)
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** The agent needs to rate an item by title (e.g. "Note Dune à 5 étoiles").
+A single tool that accepts a title and a rating would force the LLM to guess the
+item ID, risking silent mismatches (wrong "Dune", wrong domain).
+
+**Options considered:**
+
+- Single `rate_item(title, rating)` tool: simple, but the LLM has to resolve the
+  title to an ID internally with no user confirmation.
+- Two tools — `search_item_for_rating(title)` + `submit_rating(item_id, rating)`:
+  forces a confirmation step between search and write.
+
+**Decision:** Two separate tools. The system prompt and tool docstrings explicitly
+instruct the agent to never call `submit_rating` without a prior `search_item_for_rating`
+and explicit user confirmation.
+
+**Rationale:** A rating write is a destructive action (it overwrites the previous
+rating and appends to the audit trail). Requiring confirmation before executing
+prevents accidental writes on the wrong item. The two-step flow also makes the
+agent's reasoning visible to the user in the Chainlit UI as two distinct Steps.
+
+---
+
+### DEC-024 — sys.path fix in agent/app.py for Chainlit execution context
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** Chainlit executes `agent/app.py` by adding `agent/` to `sys.path`,
+which breaks absolute imports like `from agent.graph import graph` — Python looks
+for a module named `agent` inside the `agent/` directory, which does not exist.
+
+**Decision:** Add the project root to `sys.path` at the top of `agent/app.py`,
+before any project imports:
+
+```python
+sys.path.insert(0, str(Path(__file__).parent.parent))
+```
+
+**Rationale:** This is the standard fix for scripts executed from a subdirectory.
+It is limited to `app.py` (the Chainlit entry point) and does not affect any other
+module. All other project files use normal absolute imports without this workaround,
+since they are always executed from the project root (pytest, uvicorn, dbt).
