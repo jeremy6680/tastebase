@@ -3,7 +3,7 @@
 """
 CRUD endpoints for taste items.
 
-GET  /items                — paginated list, filterable by domain / status / rating
+GET  /items                — paginated list, filterable by domain / status / rating / title
 GET  /items/{item_id}      — single item with current rating
 POST /items                — create a new item
 PATCH /items/{item_id}     — partial update
@@ -60,7 +60,7 @@ def _generate_item_id(domain: str, source: str, source_id: str | None, title: st
 def _row_to_item(row: tuple) -> TasteItem:
     """Map a DuckDB row tuple from the items query to a TasteItem.
 
-    Column order must match the SELECT in _fetch_item().
+    Column order must match the SELECT in get_item().
 
     Args:
         row: Raw DuckDB result row.
@@ -117,6 +117,8 @@ def list_items(
     domain: str | None = Query(None, description="Filter by domain"),
     status: str | None = Query(None, description="Filter by status"),
     min_rating: int | None = Query(None, ge=1, le=5, description="Minimum rating"),
+    title: str | None = Query(None, description="Filter by title (case-insensitive, partial match)"),
+    limit: int | None = Query(None, ge=1, le=200, description="Max results (used by agent tools, overrides page_size)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: duckdb.DuckDBPyConnection = Depends(get_db),
@@ -127,6 +129,8 @@ def list_items(
         domain: Optional domain filter (music, book, manga, movie, series, anime).
         status: Optional status filter.
         min_rating: Optional minimum rating filter (1–5).
+        title: Optional title filter (case-insensitive partial match).
+        limit: Optional max results, used by agent tools as an alias for page_size.
         page: Page number (1-indexed).
         page_size: Number of items per page (max 200).
         db: DuckDB connection injected by FastAPI.
@@ -146,9 +150,16 @@ def list_items(
     if min_rating is not None:
         conditions.append("r.rating >= ?")
         params.append(min_rating)
+    if title:
+        # Case-insensitive partial match so the agent can search "dune" and find "Dune: Part Two"
+        conditions.append("LOWER(t.title) LIKE ?")
+        params.append(f"%{title.lower()}%")
 
     where_clause = " AND ".join(conditions)
-    offset = (page - 1) * page_size
+
+    # limit param is an alias for page_size, used by agent tools that pass ?limit=N directly
+    effective_page_size = limit if limit is not None else page_size
+    offset = (page - 1) * effective_page_size
 
     count_sql = f"""
         SELECT COUNT(*)
@@ -166,12 +177,12 @@ def list_items(
         ORDER BY t.title ASC
         LIMIT ? OFFSET ?
     """
-    rows = db.execute(items_sql, params + [page_size, offset]).fetchall()
+    rows = db.execute(items_sql, params + [effective_page_size, offset]).fetchall()
 
     return PaginatedItems(
         total=total,
         page=page,
-        page_size=page_size,
+        page_size=effective_page_size,
         items=[
             TasteItemSummary(
                 id=row[0],
@@ -339,7 +350,6 @@ def update_item(
     Raises:
         HTTPException: 404 if the item does not exist.
     """
-    # Verify existence
     existing = db.execute(
         "SELECT id FROM mart_unified_tastes WHERE id = ?", [item_id]
     ).fetchone()
