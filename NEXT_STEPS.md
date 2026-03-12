@@ -114,13 +114,14 @@
 
 ## Phase 6 — FastAPI backend
 
-- [ ] Implement `api/main.py` (FastAPI app, CORS, lifespan)
-- [ ] Implement `routers/items.py` (CRUD for taste items)
-- [ ] Implement `routers/ratings.py` (add/update rating, triggers `rating_events`)
-- [ ] Implement `routers/ingestion.py` (trigger re-ingestion via UI)
-- [ ] Implement `routers/stats.py` (data for dashboard widgets)
-- [ ] Define Pydantic schemas in `schemas/item.py` and `schemas/rating.py`
-- [ ] Write pytest tests for all endpoints
+- [x] Implement `api/dependencies.py` (`get_db`: per-request DuckDB connection via contextmanager)
+- [x] Implement `api/main.py` (FastAPI app, CORS, lifespan, `/health`)
+- [x] Implement `routers/items.py` (CRUD for taste items: GET list, GET single, POST, PATCH)
+- [x] Implement `routers/ratings.py` (upsert rating, get rating, rating history)
+- [x] Implement `routers/ingestion.py` (trigger re-ingestion via subprocess)
+- [x] Implement `routers/stats.py` (counts, top-rated, taste profile, recent)
+- [x] Define Pydantic schemas in `schemas/item.py` and `schemas/rating.py`
+- [x] Write pytest tests for all endpoints (in-memory DuckDB fixtures, ~20 tests)
 
 **Branch:** `feat/fastapi-backend`
 

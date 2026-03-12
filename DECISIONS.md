@@ -284,6 +284,34 @@ these columns.
 
 ---
 
+### DEC-016 — BaseApiClient separated from BaseLoader
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** API clients (Spotify, Trakt) initially inherited from `BaseLoader`,
+but `BaseLoader` enforces three constraints that are incompatible with API sources:
+
+- `__init__` requires a `file_path` (API sources have no file on disk)
+- `validate()` is abstract and oriented toward CSV file validation
+- `_parse()` returns a `pd.DataFrame` (API clients return a `list[dict]`)
+
+**Decision:** Create `ingestion/base_api_client.py` — a separate abstract base class
+that shares only what is common to both loader types: audit column injection
+(`_source`, `_loaded_at`), scoped logging, and a consistent `load()` interface.
+
+Abstract methods defined in `BaseApiClient`:
+
+- `_parse() -> list[dict]`: fetch from API and return raw records
+- `_write_to_bronze(records)`: write records to the DuckDB bronze table
+
+**Rationale:** Follows the Interface Segregation Principle — API clients should not
+be required to implement `validate()` or accept a `file_path` that has no meaning
+for them. Both classes share the same observable contract (`load()`, audit columns)
+without artificial coupling.
+
+---
+
 ### DEC-017 — DUCKDB_PATH must be absolute in .env
 
 **Date:** Mar, 2026
@@ -346,28 +374,81 @@ is a known gap, not a bug.
 
 ---
 
-### DEC-016 — BaseApiClient separated from BaseLoader
+### DEC-020 — Per-request DuckDB connection via FastAPI Depends
 
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** API clients (Spotify, Trakt) initially inherited from `BaseLoader`,
-but `BaseLoader` enforces three constraints that are incompatible with API sources:
+**Context:** FastAPI needs a safe way to access DuckDB across concurrent
+requests. DuckDB in single-file mode does not support multiple simultaneous
+writers safely.
 
-- `__init__` requires a `file_path` (API sources have no file on disk)
-- `validate()` is abstract and oriented toward CSV file validation
-- `_parse()` returns a `pd.DataFrame` (API clients return a `list[dict]`)
+**Options considered:**
 
-**Decision:** Create `ingestion/base_api_client.py` — a separate abstract base class
-that shares only what is common to both loader types: audit column injection
-(`_source`, `_loaded_at`), scoped logging, and a consistent `load()` interface.
+- Shared connection via lifespan (`app.state.db`): simple, but risks
+  concurrent write conflicts and complicates test isolation.
+- Global module-level connection: same concurrency problem, harder to override
+  in tests.
+- Per-request connection via `contextmanager` + `Depends`: each request opens
+  and closes its own connection; safe for the expected single-user load.
 
-Abstract methods defined in `BaseApiClient`:
+**Decision:** Per-request connection injected via `api/dependencies.py:get_db`
+using FastAPI's `Depends` mechanism.
 
-- `_parse() -> list[dict]`: fetch from API and return raw records
-- `_write_to_bronze(records)`: write records to the DuckDB bronze table
+**Rationale:** Eliminates concurrent write conflicts on the single-file
+database. The `Depends` pattern makes the connection trivially replaceable
+in tests (override `get_db` in `conftest.py` to inject an in-memory DuckDB).
+Connection overhead is negligible at personal-data scale.
 
-**Rationale:** Follows the Interface Segregation Principle — API clients should not
-be required to implement `validate()` or accept a `file_path` that has no meaning
-for them. Both classes share the same observable contract (`load()`, audit columns)
-without artificial coupling.
+---
+
+### DEC-021 — subprocess for dbt invocation in POST /ingest
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** The `/ingest` endpoint needs to trigger a `dbt run` after
+CSV/API ingestion completes.
+
+**Options considered:**
+
+- `dbt-core` Python API: internal, undocumented as a public interface, has
+  broken between minor versions.
+- `subprocess.run(["dbt", "run"])`: the approach recommended by dbt for
+  external integrations; stable across versions.
+
+**Decision:** `subprocess.run(["dbt", "run"], cwd=transform/)` with
+`capture_output=True`.
+
+**Rationale:** The subprocess approach is stable, predictable, and produces
+the same output as running dbt manually. Both stdout and stderr are captured
+and returned in the `IngestionResult` response, making failures easy to
+diagnose from the API response alone.
+
+---
+
+### DEC-022 — In-memory DuckDB for API test isolation
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** API tests need an isolated database that does not touch the
+real warehouse file.
+
+**Options considered:**
+
+- Mock the `get_db` dependency with `unittest.mock`: fast, but does not
+  exercise any SQL logic.
+- Temporary file-based DuckDB: exercises SQL but requires cleanup and risks
+  interference between parallel test runs.
+- In-memory DuckDB with gold schema bootstrapped in `conftest.py`: exercises
+  real SQL, fully isolated, zero cleanup required.
+
+**Decision:** In-memory DuckDB connection injected via `app.dependency_overrides[get_db]`
+in `tests/api/conftest.py`. The fixture creates the gold schema tables and
+seeds one item per domain before each test.
+
+**Rationale:** Tests exercise the real SQL queries against a realistic schema
+without any mocking of database logic. Each test gets a fresh state.
+The override pattern is the idiomatic FastAPI approach for dependency
+substitution in tests.
