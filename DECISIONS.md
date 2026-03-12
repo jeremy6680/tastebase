@@ -455,51 +455,50 @@ substitution in tests.
 
 ---
 
-### DEC-023 — Evidence.dev requires DuckDB file physically in sources/ directory
+### DEC-023 — Rating tool split into search + submit (two tools, not one)
 
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** Evidence.dev's DuckDB plugin resolves the `filename` option relative
-to the source directory (`sources/[source_name]/`). Symlinks are not followed,
-absolute paths are prepended with the source directory path, and external relative
-paths resolve incorrectly. The plugin requires the `.duckdb` file to be physically
-present in `sources/[source_name]/`.
+**Context:** The agent needs to rate an item by title (e.g. "Note Dune à 5 étoiles").
+A single tool that accepts a title and a rating would force the LLM to guess the
+item ID, risking silent mismatches (wrong "Dune", wrong domain).
 
 **Options considered:**
 
-- Symlink from `sources/tastebase/warehouse.duckdb` → `../../data/warehouse.duckdb`:
-  Evidence does not follow symlinks, file appears as 0 B.
-- Absolute path in `connection.yaml`: Evidence prepends the source directory,
-  producing a double-path error.
-- Copy `data/warehouse.duckdb` into `sources/tastebase/warehouse.duckdb`:
-  works reliably. File is gitignored in `dashboard/.gitignore`.
+- Single `rate_item(title, rating)` tool: simple, but the LLM has to resolve the
+  title to an ID internally with no user confirmation.
+- Two tools — `search_item_for_rating(title)` + `submit_rating(item_id, rating)`:
+  forces a confirmation step between search and write.
 
-**Decision:** Copy the warehouse file before each Evidence session via
-`make dashboard-sync`. The copy is gitignored. `make dashboard` combines
-sync + `npm run dev` into a single command.
+**Decision:** Two separate tools. The system prompt and tool docstrings explicitly
+instruct the agent to never call `submit_rating` without a prior `search_item_for_rating`
+and explicit user confirmation.
 
-**Rationale:** The copy approach is the only one that works reliably across
-all Evidence versions without patching the plugin. The Makefile command makes
-it ergonomic. In Docker deployment, the warehouse volume will be mounted
-directly into `sources/tastebase/`, eliminating the need for the copy step.
+**Rationale:** A rating write is a destructive action (it overwrites the previous
+rating and appends to the audit trail). Requiring confirmation before executing
+prevents accidental writes on the wrong item. The two-step flow also makes the
+agent's reasoning visible to the user in the Chainlit UI as two distinct Steps.
 
 ---
 
-### DEC-024 — Evidence pages guard empty datasets with {#if} instead of empty components
+### DEC-024 — sys.path fix in agent/app.py for Chainlit execution context
 
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** Evidence's `BigValue` component errors visibly when its data query
-returns 0 rows. `DataTable` and chart components display an unhelpful empty state.
-Several domains (music, series) have 0 rated items; anime has 0 items entirely.
+**Context:** Chainlit executes `agent/app.py` by adding `agent/` to `sys.path`,
+which breaks absolute imports like `from agent.graph import graph` — Python looks
+for a module named `agent` inside the `agent/` directory, which does not exist.
 
-**Decision:** Use Evidence's Svelte `{#if query.length > 0}...{:else}<Note>...{/if}`
-syntax to guard any component that depends on a query that may return 0 rows.
-`BigValue` components for domains with no data use `COUNT(*)` queries instead
-(always returns exactly 1 row) rather than filtering on `stat_type`/`dimension`.
+**Decision:** Add the project root to `sys.path` at the top of `agent/app.py`,
+before any project imports:
 
-**Rationale:** An explicit empty state with a descriptive `<Note>` is better UX
-than a crashed component. The guard also makes the dashboard forward-compatible:
-sections will populate automatically once data is available, without any page edits.
+```python
+sys.path.insert(0, str(Path(__file__).parent.parent))
+```
+
+**Rationale:** This is the standard fix for scripts executed from a subdirectory.
+It is limited to `app.py` (the Chainlit entry point) and does not affect any other
+module. All other project files use normal absolute imports without this workaround,
+since they are always executed from the project root (pytest, uvicorn, dbt).
