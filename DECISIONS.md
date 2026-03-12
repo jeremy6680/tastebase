@@ -284,6 +284,68 @@ these columns.
 
 ---
 
+### DEC-017 — DUCKDB_PATH must be absolute in .env
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** dbt resolves relative paths from the directory it is executed in
+(`transform/`), not from the project root. Setting `DUCKDB_PATH=data/warehouse.duckdb`
+in `.env` causes dbt to look for `transform/data/warehouse.duckdb`, which does
+not exist.
+
+**Decision:** `DUCKDB_PATH` must always be set as an absolute path in `.env`.
+The fallback value in `profiles.yml` has been removed to force an explicit error
+if the variable is missing, rather than silently resolving to the wrong path.
+
+**Rationale:** A missing-variable error is easier to diagnose than a
+"file not found" error pointing to a non-existent nested path. Absolute paths
+eliminate ambiguity regardless of the working directory.
+
+---
+
+### DEC-018 — raw_spotify pre_hook for missing source table
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** `raw_spotify.sql` reads from `main.raw_spotify`, which is created
+by `SpotifyClient.load()`. When Spotify is rate-limited and ingestion hasn't run,
+`main.raw_spotify` does not exist, causing `dbt run --select raw_spotify` to fail.
+A self-referencing fallback in the model caused a DAG cycle error.
+
+**Decision:** Use a dbt `pre_hook` in `raw_spotify.sql` to create `main.raw_spotify`
+as an empty table if it does not exist, before the SELECT runs.
+
+**Rationale:** The pre_hook runs before the model's SELECT, breaking the cycle.
+Downstream silver models (`stg_music`) can reference `raw_spotify` safely via
+`{{ ref() }}` regardless of whether Spotify has been ingested. When Spotify
+ingestion runs, `make ingest` populates `main.raw_spotify` and the next
+`dbt run` propagates the data automatically.
+
+---
+
+### DEC-019 — Anime detection limited to genres LIKE '%anime%' (known gap)
+
+**Date:** Mar, 2026
+**Status:** Accepted (with known limitation)
+
+**Context:** MovieBuddy exports genre metadata from TMDB, which uses
+"Animation" as a genre — not "Anime". The `stg_anime.sql` model filters on
+`LOWER(genres) LIKE '%anime%'`, which produces 0 rows against real MovieBuddy
+exports.
+
+**Decision:** Keep the current signal as the primary detection mechanism.
+Document the limitation. Plan enrichment via production country (JP) or a
+curated anime titles seed as a backlog item.
+
+**Rationale:** Changing the detection to `LIKE '%animation%'` would produce
+false positives (e.g. Pixar films, western cartoons). A dedicated anime seed
+or country-based enrichment is the correct long-term fix. The current state
+is a known gap, not a bug.
+
+---
+
 ### DEC-016 — BaseApiClient separated from BaseLoader
 
 **Date:** Mar, 2026
