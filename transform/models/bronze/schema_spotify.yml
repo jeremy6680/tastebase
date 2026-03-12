@@ -1,0 +1,48 @@
+version: 2
+
+models:
+  - name: raw_spotify
+    description: >
+      Bronze layer — raw Spotify API data written by SpotifyClient.
+      One row per API item (album, track, artist) across all endpoints.
+      The payload column contains the full raw JSON from the Spotify API as a string.
+      No transformation is applied at this layer.
+    tags:
+      - bronze
+      - spotify
+
+    columns:
+      - name: endpoint
+        description: >
+          Spotify API endpoint that produced this row.
+          One of: saved_albums, recently_played, top_artists, top_tracks.
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - saved_albums
+                - recently_played
+                - top_artists
+                - top_tracks
+
+      - name: fetched_at
+        description: ISO 8601 UTC timestamp of the ingestion batch that produced this row.
+        tests:
+          - not_null
+
+      - name: payload
+        description: >
+          Full raw JSON response object from the Spotify API, stored as a string.
+          Parsed by silver models using DuckDB json_extract() functions.
+        tests:
+          - not_null
+
+      - name: _source
+        description: Source identifier — always 'spotify' for this table.
+        tests:
+          - not_null
+
+      - name: _loaded_at
+        description: UTC timestamp injected by BaseLoader at ingestion time.
+        tests:
+          - not_null

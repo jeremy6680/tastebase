@@ -1,188 +1,200 @@
-"""Ingestion orchestrator for TasteBase.
+"""Ingestion orchestrator — runs all loaders in dependency order.
 
-Runs all CSV loaders in sequence and reports the result of each.
-Called by `make ingest` or triggered via the FastAPI ingestion endpoint.
+Execution order:
+    1. CSV loaders (MusicBuddy, BookBuddy, Goodreads, MovieBuddy, Letterboxd)
+    2. API clients (Spotify, Trakt)
+
+Each loader writes its data to the DuckDB bronze layer independently.
+A failed loader logs its error and is skipped — it does not abort the run.
 
 Usage:
     python -m ingestion.run_ingestion
-    python -m ingestion.run_ingestion --db path/to/warehouse.duckdb
+    # or via Makefile:
+    make ingest
 """
 
-import argparse
 import logging
 import os
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 from dotenv import load_dotenv
 
-from ingestion.csv.bookbuddy_loader import BookBuddyLoader
-from ingestion.csv.generic_loader import DOMAIN_FROM_FILENAME, GenericLoader
-from ingestion.csv.goodreads_loader import GoodreadsLoader
-from ingestion.csv.letterboxd_loader import LetterboxdLoader
-from ingestion.csv.moviebuddy_loader import MovieBuddyLoader
-from ingestion.csv.musicbuddy_loader import MusicBuddyLoader
-
-# Load environment variables from .env if present
 load_dotenv()
 
-# Configure logging for the orchestrator
+# ---------------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------------
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
-# Default DB path — can be overridden via CLI arg or DUCKDB_PATH env var
-DEFAULT_DB_PATH = Path(os.getenv("DUCKDB_PATH", "data/warehouse.duckdb"))
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
 
-# Default templates directory
-TEMPLATES_DIR = Path("data/templates")
+DB_PATH = os.getenv("DUCKDB_PATH", "data/warehouse.duckdb")
+RAW_DIR = Path("data/raw")
+
+# ---------------------------------------------------------------------------
+# Result tracking
+# ---------------------------------------------------------------------------
 
 
-def build_csv_loaders(db_path: Path) -> list:
-    """Instantiate all CSV loaders for known sources.
+class LoaderResult(NamedTuple):
+    """Outcome of a single loader run."""
 
-    Each loader targets its canonical file path. If the file does not
-    exist, the loader's validate() method will catch it gracefully.
+    name: str
+    success: bool
+    message: str
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _run_csv_loader(loader_class, csv_path: Path) -> LoaderResult:
+    """Instantiates and runs a CSV loader, skipping gracefully if file is missing.
 
     Args:
-        db_path: Path to the DuckDB warehouse file.
+        loader_class: The loader class to instantiate.
+        csv_path: Expected path to the CSV file.
 
     Returns:
-        List of instantiated loader objects, ready to call .load() on.
+        LoaderResult with success/failure status and a descriptive message.
     """
-    return [
-        MusicBuddyLoader(db_path=db_path),
-        BookBuddyLoader(db_path=db_path),
-        GoodreadsLoader(db_path=db_path),
-        MovieBuddyLoader(db_path=db_path),
-        LetterboxdLoader(db_path=db_path),
-    ]
+    name = loader_class.__name__
+
+    if not csv_path.exists():
+        logger.warning(f"{name}: file not found at '{csv_path}' — skipping.")
+        return LoaderResult(name=name, success=False, message=f"File not found: {csv_path}")
+
+    try:
+        loader = loader_class(csv_path=str(csv_path), db_path=DB_PATH)
+        loader.load()
+        return LoaderResult(name=name, success=True, message="OK")
+    except Exception as exc:
+        logger.error(f"{name} failed: {exc}", exc_info=True)
+        return LoaderResult(name=name, success=False, message=str(exc))
 
 
-def build_template_loaders(db_path: Path) -> list:
-    """Instantiate loaders for any user-supplied template CSVs found.
-
-    Scans data/templates/ for files matching the known template naming
-    convention. Missing template files are silently skipped — they are
-    optional by design.
+def _run_api_client(client_class) -> LoaderResult:
+    """Instantiates and runs an API client loader.
 
     Args:
-        db_path: Path to the DuckDB warehouse file.
+        client_class: The API client class to instantiate.
 
     Returns:
-        List of GenericLoader instances for found template files.
+        LoaderResult with success/failure status and a descriptive message.
     """
-    loaders = []
+    name = client_class.__name__
 
-    if not TEMPLATES_DIR.exists():
-        logger.debug("Templates directory not found at '%s' — skipping.", TEMPLATES_DIR)
-        return loaders
-
-    for stem in DOMAIN_FROM_FILENAME:
-        template_path = TEMPLATES_DIR / f"{stem}.csv"
-        if template_path.exists():
-            try:
-                loaders.append(GenericLoader(file_path=template_path, db_path=db_path))
-                logger.debug("Found template: %s", template_path.name)
-            except ValueError as exc:
-                # Should not happen since we iterate known stems, but be safe
-                logger.warning("Skipping template '%s': %s", template_path.name, exc)
-
-    return loaders
+    try:
+        client = client_class(db_path=DB_PATH)
+        client.load()
+        return LoaderResult(name=name, success=True, message="OK")
+    except EnvironmentError as exc:
+        # Missing credentials — warn but do not crash the full run
+        logger.warning(f"{name} skipped — missing credentials: {exc}")
+        return LoaderResult(name=name, success=False, message=str(exc))
+    except Exception as exc:
+        logger.error(f"{name} failed: {exc}", exc_info=True)
+        return LoaderResult(name=name, success=False, message=str(exc))
 
 
-def run_ingestion(db_path: Path) -> bool:
-    """Execute all CSV loaders and report results.
+# ---------------------------------------------------------------------------
+# Main orchestrator
+# ---------------------------------------------------------------------------
 
-    Runs every loader regardless of individual failures so that one
-    missing CSV does not block the others. Failures are logged and
-    counted, but do not raise exceptions.
 
-    Args:
-        db_path: Path to the DuckDB warehouse file.
+def run_all() -> None:
+    """Runs all ingestion loaders in dependency order.
 
-    Returns:
-        True if all loaders succeeded, False if any loader failed.
+    Order:
+        Phase 1 — CSV loaders (always run first; data/raw/ files must exist)
+        Phase 2 — API clients (run after CSV so bronze tables exist for merging)
+
+    Logs a final summary table of all loader outcomes.
+    Exits with code 1 if any loader failed, 0 if all succeeded.
     """
     logger.info("=" * 60)
     logger.info("TasteBase ingestion started")
-    logger.info("Database: %s", db_path)
     logger.info("=" * 60)
 
-    # Ensure the database directory exists
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    results: list[LoaderResult] = []
 
-    loaders = build_csv_loaders(db_path) + build_template_loaders(db_path)
+    # ------------------------------------------------------------------
+    # Phase 1 — CSV loaders
+    # ------------------------------------------------------------------
 
-    if not loaders:
-        logger.warning("No loaders found. Nothing to ingest.")
-        return True
+    logger.info("--- Phase 1: CSV loaders ---")
 
-    results: dict[str, int | Exception] = {}
+    from ingestion.csv.musicbuddy_loader import MusicBuddyLoader
+    from ingestion.csv.bookbuddy_loader import BookBuddyLoader
+    from ingestion.csv.goodreads_loader import GoodreadsLoader
+    from ingestion.csv.moviebuddy_loader import MovieBuddyLoader
+    from ingestion.csv.letterboxd_loader import LetterboxdLoader
 
-    for loader in loaders:
-        try:
-            row_count = loader.load()
-            results[loader.table_name] = row_count
-        except Exception as exc:
-            # Log the error but continue with remaining loaders
-            logger.error(
-                "Loader '%s' failed: %s",
-                loader.table_name,
-                exc,
-                exc_info=True,
-            )
-            results[loader.table_name] = exc
+    csv_loaders = [
+        (MusicBuddyLoader, RAW_DIR / "musicbuddy.csv"),
+        (BookBuddyLoader, RAW_DIR / "bookbuddy.csv"),
+        (GoodreadsLoader, RAW_DIR / "goodreads.csv"),
+        (MovieBuddyLoader, RAW_DIR / "moviebuddy.csv"),
+        (LetterboxdLoader, RAW_DIR / "letterboxd.csv"),
+    ]
 
-    # Print summary
+    for loader_class, csv_path in csv_loaders:
+        result = _run_csv_loader(loader_class, csv_path)
+        results.append(result)
+
+    # ------------------------------------------------------------------
+    # Phase 2 — API clients
+    # ------------------------------------------------------------------
+
+    logger.info("--- Phase 2: API clients ---")
+
+    from ingestion.apis.spotify_client import SpotifyClient
+    from ingestion.apis.trakt_client import TraktClient
+
+    api_clients = [
+        SpotifyClient,
+        TraktClient,
+    ]
+
+    for client_class in api_clients:
+        result = _run_api_client(client_class)
+        results.append(result)
+
+    # ------------------------------------------------------------------
+    # Summary
+    # ------------------------------------------------------------------
+
     logger.info("=" * 60)
-    logger.info("Ingestion summary")
+    logger.info("Ingestion summary:")
+
+    success_count = sum(1 for r in results if r.success)
+    failure_count = len(results) - success_count
+
+    for result in results:
+        status = "OK" if result.success else "FAILED"
+        logger.info(f"  [{status}] {result.name}: {result.message}")
+
+    logger.info(f"  {success_count}/{len(results)} loaders succeeded.")
     logger.info("=" * 60)
 
-    success_count = 0
-    failure_count = 0
+    if failure_count > 0:
+        logger.warning(f"{failure_count} loader(s) failed — check logs above.")
+        sys.exit(1)
 
-    for table_name, result in results.items():
-        if isinstance(result, Exception):
-            logger.error("  ✗ %-30s FAILED: %s", table_name, result)
-            failure_count += 1
-        else:
-            logger.info("  ✓ %-30s %d rows", table_name, result)
-            success_count += 1
-
-    logger.info("-" * 60)
-    logger.info(
-        "Total: %d succeeded, %d failed",
-        success_count,
-        failure_count,
-    )
-
-    return failure_count == 0
-
-
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments.
-
-    Returns:
-        Parsed arguments namespace.
-    """
-    parser = argparse.ArgumentParser(
-        description="TasteBase ingestion orchestrator — runs all CSV loaders.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser.add_argument(
-        "--db",
-        type=Path,
-        default=DEFAULT_DB_PATH,
-        help="Path to the DuckDB warehouse file.",
-    )
-    return parser.parse_args()
+    logger.info("All loaders completed successfully.")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
-    args = parse_args()
-    success = run_ingestion(db_path=args.db)
-    sys.exit(0 if success else 1)
+    run_all()
