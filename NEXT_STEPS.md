@@ -91,7 +91,9 @@
 
 ## Phase 4b — Silver schema tests
 
-- [ ] Write dbt schema tests for all silver models (`stg_music`, `stg_books`, `stg_movies`, `stg_series`, `stg_anime`)
+- [x] Write dbt schema tests for all silver models (`stg_music`, `stg_books`, `stg_movies`, `stg_series`, `stg_anime`)
+
+**Result:** 62/62 PASS, 0 WARN, 0 ERROR
 
 **Branch:** `feat/silver-schema-tests`
 
