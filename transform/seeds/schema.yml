@@ -1,0 +1,38 @@
+version: 2
+
+seeds:
+  - name: manga_publishers
+    description: >
+      Known manga publishers used for manga domain detection in stg_books.
+      Source: manually curated list covering major JP, US, and FR publishers.
+    columns:
+      - name: publisher
+        description: Publisher name exactly as it may appear in BookBuddy or Goodreads exports.
+        tests:
+          - not_null
+          - unique
+
+  - name: domain_mapping
+    description: >
+      Category/tag/shelf keyword → domain override map.
+      Used in stg_books to detect manga from BookBuddy category/tags
+      and Goodreads bookshelves when the publisher heuristic is insufficient.
+    columns:
+      - name: source_value
+        description: The keyword to match (lowercase, trimmed).
+        tests:
+          - not_null
+      - name: domain
+        description: The domain to assign when the keyword matches.
+        tests:
+          - not_null
+          - accepted_values:
+              values: [manga, book]
+      - name: source_field
+        description: The field in the source table to check (category, tags, bookshelves).
+        tests:
+          - not_null
+      - name: source_name
+        description: The source this mapping applies to (bookbuddy, goodreads).
+        tests:
+          - not_null

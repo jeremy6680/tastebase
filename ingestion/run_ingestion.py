@@ -76,7 +76,8 @@ def _run_csv_loader(loader_class, csv_path: Path) -> LoaderResult:
         return LoaderResult(name=name, success=False, message=f"File not found: {csv_path}")
 
     try:
-        loader = loader_class(csv_path=str(csv_path), db_path=DB_PATH)
+        # file_path is the correct kwarg name as defined in BaseLoader.__init__
+        loader = loader_class(file_path=str(csv_path), db_path=DB_PATH)
         loader.load()
         return LoaderResult(name=name, success=True, message="OK")
     except Exception as exc:
