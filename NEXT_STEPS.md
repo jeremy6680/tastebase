@@ -49,11 +49,11 @@
 
 ## Phase 3 — API ingestion (bronze layer)
 
-- [ ] Implement `spotify_client.py` (saved albums, recently played, top artists/tracks)
-- [ ] Implement `trakt_client.py` (watched movies, watched shows, ratings)
-- [ ] Extend `run_ingestion.py` to include API sources
-- [ ] Write bronze dbt models for Spotify and Trakt (`raw_spotify`, `raw_trakt`)
-- [ ] Write pytest tests for API clients (with mocked responses)
+- [x] Implement `spotify_client.py` (saved albums, recently played, top artists/tracks)
+- [x] Implement `trakt_client.py` (watched movies, watched shows, ratings)
+- [x] Extend `run_ingestion.py` to include API sources
+- [x] Write bronze dbt models for Spotify and Trakt (`raw_spotify`, `raw_trakt`)
+- [x] Write pytest tests for API clients (with mocked responses)
 
 **Branch:** `feat/api-ingestion-bronze`
 
@@ -178,6 +178,7 @@
 
 - [ ] MyAnimeList API integration
 - [ ] OpenLibrary / Google Books cover enrichment
+- [ ] Smoke test Spotify `_fetch_saved_albums` (token rate-limited during Phase 3 — retest when limit lifts)
 - [ ] Spotify cover art enrichment for albums
 - [ ] Multi-user support (separate DuckDB per user, or schema-per-user)
 - [ ] Export taste profile as JSON/CSV

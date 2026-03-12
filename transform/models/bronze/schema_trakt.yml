@@ -1,0 +1,51 @@
+version: 2
+
+models:
+  - name: raw_trakt
+    description: >
+      Bronze layer — raw Trakt.tv API data written by TraktClient.
+      One row per API item (movie, show, rating) across all endpoints.
+      The payload column contains the full raw JSON from the Trakt API as a string.
+      Trakt ratings (1–10 scale) are stored as-is — conversion to 1–5 happens
+      at the silver layer only.
+      No transformation is applied at this layer.
+    tags:
+      - bronze
+      - trakt
+
+    columns:
+      - name: endpoint
+        description: >
+          Trakt API endpoint that produced this row.
+          One of: watched_movies, watched_shows, ratings_movies, ratings_shows.
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - watched_movies
+                - watched_shows
+                - ratings_movies
+                - ratings_shows
+
+      - name: fetched_at
+        description: ISO 8601 UTC timestamp of the ingestion batch that produced this row.
+        tests:
+          - not_null
+
+      - name: payload
+        description: >
+          Full raw JSON response object from the Trakt API, stored as a string.
+          Parsed by silver models using DuckDB json_extract() functions.
+          Rating values (1–10) are preserved exactly as returned by the API.
+        tests:
+          - not_null
+
+      - name: _source
+        description: Source identifier — always 'trakt' for this table.
+        tests:
+          - not_null
+
+      - name: _loaded_at
+        description: UTC timestamp injected by BaseLoader at ingestion time.
+        tests:
+          - not_null
