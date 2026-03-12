@@ -69,9 +69,9 @@
 - [x] Write `stg_anime.sql` (MovieBuddy TV Show + Trakt, anime only — see known issue)
 - [x] Implement deduplication logic (canonical ID → rating priority → date)
 - [x] Normalize all ratings to 1–5 integer scale
-- [ ] Write dbt schema tests (not_null, unique, accepted_values)
 
 **Known issues / backlog from Phase 4:**
+
 - `stg_anime` returns 0 rows: MovieBuddy exports genre as "Animation" (TMDB), not "Anime".
   Fix: enrich with production country (JP) or maintain a known anime titles seed.
 - `stg_series` contains anime titles (Bakuman, Death Note, Kuroko's Basketball, etc.)
@@ -89,14 +89,22 @@
 
 ---
 
+## Phase 4b — Silver schema tests
+
+- [ ] Write dbt schema tests for all silver models (`stg_music`, `stg_books`, `stg_movies`, `stg_series`, `stg_anime`)
+
+**Branch:** `feat/silver-schema-tests`
+
+---
+
 ## Phase 5 — Gold layer (analytical marts)
 
-- [ ] Write `mart_unified_tastes.sql` (full unified view across all domains)
-- [ ] Write `mart_ratings.sql` (current rating per item, source-tracked)
-- [ ] Write `mart_rating_events.sql` (append-only audit trail)
-- [ ] Write `mart_top_rated.sql` (top items per domain, filterable)
-- [ ] Write `mart_taste_profile.sql` (aggregate stats: genres, creators, decades)
-- [ ] Write dbt schema tests for gold models
+- [x] Write `mart_unified_tastes.sql` (full unified view across all domains)
+- [x] Write `mart_ratings.sql` (current rating per item, source-tracked)
+- [x] Write `mart_rating_events.sql` (append-only audit trail, bootstrapped from imports)
+- [x] Write `mart_top_rated.sql` (top items per domain, filterable)
+- [x] Write `mart_taste_profile.sql` (aggregate stats: genres, creators, decades)
+- [x] Write dbt schema tests for gold models (31/31 passing)
 
 **Branch:** `feat/gold-layer`
 
