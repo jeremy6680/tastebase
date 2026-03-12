@@ -21,11 +21,12 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values:
-                - watched_movies
-                - watched_shows
-                - ratings_movies
-                - ratings_shows
+              arguments:
+                values:
+                  - watched_movies
+                  - watched_shows
+                  - ratings_movies
+                  - ratings_shows
 
       - name: fetched_at
         description: ISO 8601 UTC timestamp of the ingestion batch that produced this row.

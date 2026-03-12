@@ -19,11 +19,12 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values:
-                - saved_albums
-                - recently_played
-                - top_artists
-                - top_tracks
+              arguments:
+                values:
+                  - saved_albums
+                  - recently_played
+                  - top_artists
+                  - top_tracks
 
       - name: fetched_at
         description: ISO 8601 UTC timestamp of the ingestion batch that produced this row.

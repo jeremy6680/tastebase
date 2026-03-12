@@ -27,7 +27,10 @@ seeds:
         tests:
           - not_null
           - accepted_values:
-              values: [manga, book]
+              arguments:
+                values:
+                  - manga
+                  - book
       - name: source_field
         description: The field in the source table to check (category, tags, bookshelves).
         tests:
