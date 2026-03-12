@@ -129,13 +129,13 @@
 
 ## Phase 7 — CSV templates
 
-- [ ] Create `data/templates/template_music.csv`
-- [ ] Create `data/templates/template_books.csv`
-- [ ] Create `data/templates/template_manga.csv`
-- [ ] Create `data/templates/template_movies.csv`
-- [ ] Create `data/templates/template_series.csv`
-- [ ] Create `data/templates/template_anime.csv`
-- [ ] Write `docs/csv-templates.md` (documentation for each template)
+- [x] Create `data/templates/template_music.csv`
+- [x] Create `data/templates/template_books.csv`
+- [x] Create `data/templates/template_manga.csv`
+- [x] Create `data/templates/template_movies.csv`
+- [x] Create `data/templates/template_series.csv`
+- [x] Create `data/templates/template_anime.csv`
+- [x] Write `docs/csv-templates.md` (documentation for each template)
 
 **Branch:** `feat/csv-templates`
 
