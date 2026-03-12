@@ -281,3 +281,31 @@ no concrete loader ever needs to handle it.
 deduplication and auditing imported ratings. Centralizing injection in
 `BaseLoader` makes it impossible for any loader to accidentally omit
 these columns.
+
+---
+
+### DEC-016 — BaseApiClient separated from BaseLoader
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** API clients (Spotify, Trakt) initially inherited from `BaseLoader`,
+but `BaseLoader` enforces three constraints that are incompatible with API sources:
+
+- `__init__` requires a `file_path` (API sources have no file on disk)
+- `validate()` is abstract and oriented toward CSV file validation
+- `_parse()` returns a `pd.DataFrame` (API clients return a `list[dict]`)
+
+**Decision:** Create `ingestion/base_api_client.py` — a separate abstract base class
+that shares only what is common to both loader types: audit column injection
+(`_source`, `_loaded_at`), scoped logging, and a consistent `load()` interface.
+
+Abstract methods defined in `BaseApiClient`:
+
+- `_parse() -> list[dict]`: fetch from API and return raw records
+- `_write_to_bronze(records)`: write records to the DuckDB bronze table
+
+**Rationale:** Follows the Interface Segregation Principle — API clients should not
+be required to implement `validate()` or accept a `file_path` that has no meaning
+for them. Both classes share the same observable contract (`load()`, audit columns)
+without artificial coupling.
