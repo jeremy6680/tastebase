@@ -1,0 +1,335 @@
+version: 2
+
+models:
+  # ---------------------------------------------------------------------------
+  # stg_music
+  # ---------------------------------------------------------------------------
+  - name: stg_music
+    description: >
+      Silver model for the music domain. Primary source: MusicBuddy CSV.
+      Enrichment only: Spotify (cover art, spotify_id — no rating).
+      Deduplication key: discogs_release_id -> upc_ean13 -> artist + title.
+      Ratings normalized to integer 1–5. Unrated items have NULL rating.
+    columns:
+      - name: id
+        description: SHA256 hash of (domain + source + source_id). Primary key.
+        tests:
+          - not_null
+          - unique
+      - name: domain
+        description: Always 'music' for this model.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - music
+      - name: source
+        description: Originating source. Always 'musicbuddy' (Spotify is enrichment only).
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - musicbuddy
+      - name: title
+        description: Album title. Never null (filtered in WHERE clause).
+        tests:
+          - not_null
+      - name: creator
+        description: Artist name. Never null (filtered in WHERE clause).
+        tests:
+          - not_null
+      - name: rating
+        description: Normalized 1–5 integer rating. NULL means unrated.
+        tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+              quote: false
+      - name: status
+        description: Item status derived from MusicBuddy wish_list and previously_owned flags.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - owned
+                  - wishlist
+                  - previously_owned
+      - name: _source
+        description: Audit column — loader identifier injected by BaseLoader.
+        tests:
+          - not_null
+      - name: _loaded_at
+        description: Audit column — UTC timestamp of the ingestion run.
+        tests:
+          - not_null
+
+  # ---------------------------------------------------------------------------
+  # stg_books
+  # ---------------------------------------------------------------------------
+  - name: stg_books
+    description: >
+      Silver model for book and manga domains. Sources: BookBuddy (primary)
+      and Goodreads (secondary). Domain detection uses publisher list
+      (manga_publishers seed) and keyword mapping (domain_mapping seed).
+      Deduplication key: isbn13 -> isbn -> title + author.
+      Ratings normalized to integer 1–5. Unrated items have NULL rating.
+    columns:
+      - name: id
+        description: SHA256 hash of (domain + source + source_id). Primary key.
+        tests:
+          - not_null
+          - unique
+      - name: domain
+        description: Content domain — book or manga, detected via publisher and keyword signals.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - book
+                  - manga
+      - name: source
+        description: Originating source — bookbuddy or goodreads.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - bookbuddy
+                  - goodreads
+      - name: title
+        description: Book or manga title. Never null (filtered in WHERE clause).
+        tests:
+          - not_null
+      - name: creator
+        description: Author name. Never null (mapped from author column).
+        tests:
+          - not_null
+      - name: rating
+        description: >
+          Normalized 1–5 integer rating. NULL means unrated.
+          BookBuddy float -> ROUND(). Goodreads integer 0 -> NULL.
+        tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+              quote: false
+      - name: status
+        description: Unified read status.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - read
+                  - unread
+                  - previously_owned
+      - name: _source
+        description: Audit column — loader identifier injected by BaseLoader.
+        tests:
+          - not_null
+      - name: _loaded_at
+        description: Audit column — UTC timestamp of the ingestion run.
+        tests:
+          - not_null
+
+  # ---------------------------------------------------------------------------
+  # stg_movies
+  # ---------------------------------------------------------------------------
+  - name: stg_movies
+    description: >
+      Silver model for the movie domain. Sources: MovieBuddy (primary,
+      content_type = 'Movie'), Letterboxd (secondary), Trakt watched_movies
+      (secondary). Anime and series are excluded — handled in their own models.
+      Deduplication key: imdb_id -> tmdb_id -> title + year.
+      Ratings normalized to integer 1–5. Trakt 1–10 -> CEIL(x/2).
+    columns:
+      - name: id
+        description: SHA256 hash of (domain + source + source_id). Primary key.
+        tests:
+          - not_null
+          - unique
+      - name: domain
+        description: Always 'movie' for this model.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - movie
+      - name: source
+        description: Originating source — moviebuddy, letterboxd, or trakt.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - moviebuddy
+                  - letterboxd
+                  - trakt
+      - name: title
+        description: Movie title. Never null (filtered in WHERE clause).
+        tests:
+          - not_null
+      - name: rating
+        description: >
+          Normalized 1–5 integer rating. NULL means unrated.
+          MovieBuddy/Letterboxd float -> ROUND(). Trakt 1–10 -> CEIL(x/2).
+        tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+              quote: false
+      - name: status
+        description: Watch status.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - watched
+                  - wishlist
+                  - previously_owned
+      - name: _source
+        description: Audit column — loader identifier injected by BaseLoader.
+        tests:
+          - not_null
+      - name: _loaded_at
+        description: Audit column — UTC timestamp of the ingestion run.
+        tests:
+          - not_null
+
+  # ---------------------------------------------------------------------------
+  # stg_series
+  # ---------------------------------------------------------------------------
+  - name: stg_series
+    description: >
+      Silver model for the series domain. Sources: MovieBuddy TV Shows
+      (anime excluded) and Trakt watched_shows (anime excluded).
+      Anime is explicitly filtered out and handled in stg_anime.
+      Deduplication key: imdb_id -> tmdb_id -> title + year.
+      Ratings normalized to integer 1–5. Trakt 1–10 -> CEIL(x/2).
+    columns:
+      - name: id
+        description: SHA256 hash of (domain + source + source_id). Primary key.
+        tests:
+          - not_null
+          - unique
+      - name: domain
+        description: Always 'series' for this model.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - series
+      - name: source
+        description: Originating source — moviebuddy or trakt.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - moviebuddy
+                  - trakt
+      - name: title
+        description: Series title. Never null (filtered in WHERE clause).
+        tests:
+          - not_null
+      - name: rating
+        description: >
+          Normalized 1–5 integer rating. NULL means unrated.
+          MovieBuddy float -> ROUND(). Trakt 1–10 -> CEIL(x/2).
+        tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+              quote: false
+      - name: status
+        description: Watch status.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - watched
+                  - wishlist
+                  - previously_owned
+      - name: _source
+        description: Audit column — loader identifier injected by BaseLoader.
+        tests:
+          - not_null
+      - name: _loaded_at
+        description: Audit column — UTC timestamp of the ingestion run.
+        tests:
+          - not_null
+
+  # ---------------------------------------------------------------------------
+  # stg_anime
+  # ---------------------------------------------------------------------------
+  - name: stg_anime
+    description: >
+      Silver model for the anime domain. Sources: MovieBuddy TV Shows where
+      genres LIKE '%anime%' (primary), and Trakt watched_shows filtered to
+      IMDB IDs already present in MovieBuddy anime (secondary).
+      Known limitation: MovieBuddy exports TMDB genre 'Animation', not 'Anime',
+      so this model currently returns 0 rows from real exports (DEC-019).
+      Deduplication key: imdb_id -> tmdb_id -> title + year.
+      Ratings normalized to integer 1–5. Trakt 1–10 -> CEIL(x/2).
+    columns:
+      - name: id
+        description: SHA256 hash of (domain + source + source_id). Primary key.
+        tests:
+          - not_null
+          - unique
+      - name: domain
+        description: Always 'anime' for this model.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - anime
+      - name: source
+        description: Originating source — moviebuddy or trakt.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - moviebuddy
+                  - trakt
+      - name: title
+        description: Anime title. Never null (filtered in WHERE clause).
+        tests:
+          - not_null
+      - name: rating
+        description: >
+          Normalized 1–5 integer rating. NULL means unrated.
+          MovieBuddy float -> ROUND(). Trakt 1–10 -> CEIL(x/2).
+        tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+              quote: false
+      - name: status
+        description: Watch status.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - watched
+                  - wishlist
+                  - previously_owned
+      - name: _source
+        description: Audit column — loader identifier injected by BaseLoader.
+        tests:
+          - not_null
+      - name: _loaded_at
+        description: Audit column — UTC timestamp of the ingestion run.
+        tests:
+          - not_null
