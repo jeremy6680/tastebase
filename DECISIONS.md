@@ -452,3 +452,54 @@ seeds one item per domain before each test.
 without any mocking of database logic. Each test gets a fresh state.
 The override pattern is the idiomatic FastAPI approach for dependency
 substitution in tests.
+
+---
+
+### DEC-023 — Evidence.dev requires DuckDB file physically in sources/ directory
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** Evidence.dev's DuckDB plugin resolves the `filename` option relative
+to the source directory (`sources/[source_name]/`). Symlinks are not followed,
+absolute paths are prepended with the source directory path, and external relative
+paths resolve incorrectly. The plugin requires the `.duckdb` file to be physically
+present in `sources/[source_name]/`.
+
+**Options considered:**
+
+- Symlink from `sources/tastebase/warehouse.duckdb` → `../../data/warehouse.duckdb`:
+  Evidence does not follow symlinks, file appears as 0 B.
+- Absolute path in `connection.yaml`: Evidence prepends the source directory,
+  producing a double-path error.
+- Copy `data/warehouse.duckdb` into `sources/tastebase/warehouse.duckdb`:
+  works reliably. File is gitignored in `dashboard/.gitignore`.
+
+**Decision:** Copy the warehouse file before each Evidence session via
+`make dashboard-sync`. The copy is gitignored. `make dashboard` combines
+sync + `npm run dev` into a single command.
+
+**Rationale:** The copy approach is the only one that works reliably across
+all Evidence versions without patching the plugin. The Makefile command makes
+it ergonomic. In Docker deployment, the warehouse volume will be mounted
+directly into `sources/tastebase/`, eliminating the need for the copy step.
+
+---
+
+### DEC-024 — Evidence pages guard empty datasets with {#if} instead of empty components
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** Evidence's `BigValue` component errors visibly when its data query
+returns 0 rows. `DataTable` and chart components display an unhelpful empty state.
+Several domains (music, series) have 0 rated items; anime has 0 items entirely.
+
+**Decision:** Use Evidence's Svelte `{#if query.length > 0}...{:else}<Note>...{/if}`
+syntax to guard any component that depends on a query that may return 0 rows.
+`BigValue` components for domains with no data use `COUNT(*)` queries instead
+(always returns exactly 1 row) rather than filtering on `stat_type`/`dimension`.
+
+**Rationale:** An explicit empty state with a descriptive `<Note>` is better UX
+than a crashed component. The guard also makes the dashboard forward-compatible:
+sections will populate automatically once data is available, without any page edits.
