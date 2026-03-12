@@ -1,0 +1,170 @@
+version: 2
+
+models:
+  - name: mart_unified_tastes
+    description: >
+      Unified table of all taste items across all domains (music, book, manga,
+      movie, series, anime). One deduplicated row per item. Primary analytical
+      table for the LangGraph agent and Evidence.dev dashboard.
+    columns:
+      - name: id
+        description: MD5 hash of (domain + source + source_id). Primary key inherited from silver.
+        tests:
+          - not_null
+          - unique
+      - name: domain
+        description: Content domain.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - music
+                  - book
+                  - manga
+                  - movie
+                  - series
+                  - anime
+      - name: source
+        description: Originating data source identifier.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - musicbuddy
+                  - spotify
+                  - bookbuddy
+                  - goodreads
+                  - moviebuddy
+                  - letterboxd
+                  - trakt
+      - name: title
+        description: Item title. Never null.
+        tests:
+          - not_null
+      - name: rating
+        description: Normalized 1–5 integer rating. NULL means unrated.
+        tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+              quote: false
+
+  - name: mart_ratings
+    description: >
+      Current rating per item, with source tracking (imported or user).
+      One row per rated item. User ratings set via the FastAPI /ratings
+      endpoint supplement this table in Phase 6.
+    columns:
+      - name: id
+        description: MD5 hash of (item_id + source). Primary key.
+        tests:
+          - not_null
+          - unique
+      - name: item_id
+        description: Foreign key to mart_unified_tastes.id.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('mart_unified_tastes')
+                field: id
+      - name: rating
+        description: Rating value, 1–5 integer. Never null in this table.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+              quote: false
+      - name: source
+        description: Rating origin.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - imported
+                  - user
+
+  - name: mart_rating_events
+    description: >
+      Append-only audit trail of all rating changes. Bootstrap rows have
+      old_rating = NULL (first import). Subsequent user changes are inserted
+      by the FastAPI backend and never modified.
+    columns:
+      - name: id
+        description: MD5 hash of (item_id + event_type + new_rating). Primary key.
+        tests:
+          - not_null
+          - unique
+      - name: item_id
+        description: Foreign key to mart_unified_tastes.id.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('mart_unified_tastes')
+                field: id
+      - name: new_rating
+        description: Rating value after the change. Never null for bootstrap events.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+              quote: false
+      - name: changed_by
+        description: Who triggered the change.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - import
+                  - user
+
+  - name: mart_top_rated
+    description: >
+      Top 100 rated items per domain, ranked by rating then date_added.
+      Used by dashboard widgets and agent recommendation queries.
+    columns:
+      - name: id
+        description: Same as mart_unified_tastes.id.
+        tests:
+          - not_null
+      - name: domain
+        description: Content domain.
+        tests:
+          - not_null
+      - name: rating
+        description: Rating 1–5. Never null (unrated items excluded).
+        tests:
+          - not_null
+      - name: rank_in_domain
+        description: Rank within domain (1 = best). Always between 1 and 100.
+        tests:
+          - not_null
+
+  - name: mart_taste_profile
+    description: >
+      Aggregate taste statistics for the agent and dashboard.
+      Rows represent different stat types: domain_stats, top_genre,
+      top_creator, decade. Query with WHERE stat_type = '...' to filter.
+    columns:
+      - name: stat_type
+        description: Type of aggregate stat.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - domain_stats
+                  - top_genre
+                  - top_creator
+                  - decade
+      - name: dimension
+        description: Primary grouping dimension (domain name, genre name, creator name, decade string).
+        tests:
+          - not_null
