@@ -1,0 +1,8 @@
+# Evidence.dev DuckDB connection for TasteBase
+# The warehouse.duckdb file must be physically present in this directory.
+# Run `make dashboard-sync` from the project root to copy the latest warehouse.
+name: tastebase
+type: duckdb
+options:
+  filename: warehouse.duckdb
+  read_only: true

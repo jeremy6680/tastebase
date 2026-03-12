@@ -10,7 +10,8 @@
 -include .env
 export
 
-.PHONY: install ingest transform pipeline seed agent api dev test lint help
+.PHONY: install ingest transform pipeline seed agent api dev test lint \
+        dashboard dashboard-sync help
 
 # Install Python dependencies
 install:
@@ -30,6 +31,17 @@ transform:
 
 # Full pipeline refresh: ingest + seed + transform
 pipeline: ingest seed transform
+
+# Copy the latest warehouse snapshot to the Evidence dashboard source folder.
+# Must be run before `make dashboard` or `npm run sources` in dashboard/.
+# Evidence requires the .duckdb file to be physically present in sources/tastebase/.
+dashboard-sync:
+	cp data/warehouse.duckdb dashboard/sources/tastebase/warehouse.duckdb
+	@echo "✅ warehouse.duckdb synced to dashboard/sources/tastebase/"
+
+# Sync warehouse + start the Evidence dev server
+dashboard: dashboard-sync
+	cd dashboard && npm run dev
 
 # Start the Chainlit agent UI
 agent:
@@ -57,14 +69,16 @@ help:
 	@echo ""
 	@echo "TasteBase — available commands"
 	@echo "------------------------------"
-	@echo "  make install    Install Python dependencies"
-	@echo "  make ingest     Run all ingestion scripts"
-	@echo "  make seed       Load dbt seeds"
-	@echo "  make transform  Run dbt models (bronze → silver → gold)"
-	@echo "  make pipeline   Full refresh (ingest + seed + transform)"
-	@echo "  make agent      Start Chainlit agent UI (port 8080)"
-	@echo "  make api        Start FastAPI backend (port 8000)"
-	@echo "  make dev        Start full stack via Docker Compose"
-	@echo "  make test       Run pytest"
-	@echo "  make lint       Run ruff + mypy"
+	@echo "  make install         Install Python dependencies"
+	@echo "  make ingest          Run all ingestion scripts"
+	@echo "  make seed            Load dbt seeds"
+	@echo "  make transform       Run dbt models (bronze → silver → gold)"
+	@echo "  make pipeline        Full refresh (ingest + seed + transform)"
+	@echo "  make dashboard-sync  Copy warehouse to Evidence source folder"
+	@echo "  make dashboard       Sync warehouse + start Evidence dev server"
+	@echo "  make agent           Start Chainlit agent UI (port 8080)"
+	@echo "  make api             Start FastAPI backend (port 8000)"
+	@echo "  make dev             Start full stack via Docker Compose"
+	@echo "  make test            Run pytest"
+	@echo "  make lint            Run ruff + mypy"
 	@echo ""

@@ -156,10 +156,23 @@
 
 ## Phase 9 — Evidence.dev dashboard
 
-- [ ] Initialize Evidence.dev project in `dashboard/`
-- [ ] Create pages: overview, music, books, manga, movies, series, anime
-- [ ] Add widgets: top rated, recently added, taste profile, genre breakdown
-- [ ] Connect to DuckDB gold layer
+- [x] Initialize Evidence.dev project in `dashboard/` (`npx degit evidence-dev/template . --force`)
+- [x] Configure DuckDB connection (`sources/tastebase/connection.yaml`, `read_only: true`)
+- [x] Add source queries for gold layer (`unified_tastes.sql`, `ratings.sql`, `top_rated.sql`, `taste_profile.sql`)
+- [x] Add `make dashboard-sync` and `make dashboard` commands to Makefile
+- [x] Create page: overview (`index.md`) — domain counts, top genres, top creators, decades, recently added
+- [x] Create page: music (`music.md`) — BigValues, top rated, all albums, top artists
+- [x] Create page: books (`books.md`) — BigValues, top rated, top authors
+- [x] Create page: manga (`manga.md`) — BigValues, top rated, top authors
+- [x] Create page: movies (`movies.md`) — BigValues, top rated, top directors, by decade
+- [x] Create page: series (`series.md`) — BigValues, top rated (guarded), all series, by decade
+- [x] Create page: anime (`anime.md`) — guarded display pending DEC-019 fix
+
+**Known issues carried forward:**
+
+- Music and series have 0 rated items → top rated sections display a Note component instead of empty tables
+- Anime has 0 items → all sections guarded with `{#if}` (DEC-019)
+- `warehouse.duckdb` must be manually synced via `make dashboard-sync` before each Evidence session (Evidence requires the file physically present in `sources/tastebase/`)
 
 **Branch:** `feat/evidence-dashboard`
 
