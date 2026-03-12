@@ -224,3 +224,60 @@
 **Decision:** French is the default language. English is a supported alternative. All translation strings live in `frontend/i18n/fr.json` and `frontend/i18n/en.json`. Agent prompts are available in both languages in `agent/prompts.py`.
 
 **Rationale:** French-first reflects the author's primary use case. English support makes the project accessible internationally and aligns with the open-source goal.
+
+---
+
+### DEC-014 — Fixed canonical filenames for CSV sources
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** Buddy+ apps and Letterboxd export files with names that
+include timestamps (e.g. `MusicBuddy 2026-03-05 144228`,
+`letterboxd-username-2026-03-05-16-05-utc/ratings.csv`). Loaders need
+a predictable filename to operate without configuration.
+
+**Decision:** Each source has a fixed canonical filename that the user
+must use:
+
+| Source     | Expected file             |
+| ---------- | ------------------------- |
+| MusicBuddy | `data/raw/musicbuddy.csv` |
+| BookBuddy  | `data/raw/bookbuddy.csv`  |
+| Goodreads  | `data/raw/goodreads.csv`  |
+| MovieBuddy | `data/raw/moviebuddy.csv` |
+| Letterboxd | `data/raw/letterboxd.csv` |
+
+Renaming instructions are documented in `docs/data-sources.md`.
+
+**Rationale:** A fixed name per source keeps loader code simple (no
+glob patterns, no dynamic file discovery) and makes behavior
+predictable. The renaming constraint is lightweight and clearly
+documented.
+
+---
+
+### DEC-015 — Audit columns injected at the bronze layer
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** In the silver layer, multiple sources are merged into a
+single model (e.g. BookBuddy + Goodreads → stg_books). Without
+explicit traceability, it becomes impossible to know where a row
+originated after a join.
+
+**Decision:** Two audit columns are added by `BaseLoader` to every row
+before writing to bronze:
+
+- `_source` (VARCHAR): source identifier, e.g. `"musicbuddy"`
+- `_loaded_at` (TIMESTAMP WITH TIME ZONE): UTC timestamp of the ingestion run
+
+The `_` prefix follows the dbt convention for technical metadata columns.
+Injection happens in `BaseLoader.load()`, after `_parse()` returns, so
+no concrete loader ever needs to handle it.
+
+**Rationale:** Source-to-gold traceability is essential for debugging
+deduplication and auditing imported ratings. Centralizing injection in
+`BaseLoader` makes it impossible for any loader to accidentally omit
+these columns.
