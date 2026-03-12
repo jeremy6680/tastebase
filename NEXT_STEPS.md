@@ -143,12 +143,12 @@
 
 ## Phase 8 — LangGraph agent
 
-- [ ] Implement `sql_tool.py` (natural language → DuckDB SQL via LLM)
-- [ ] Implement `rating_tool.py` (add/update rating via FastAPI)
-- [ ] Implement `recommend_tool.py` (cross-domain recommendations)
-- [ ] Implement `graph.py` (LangGraph agent with state, tools, memory)
-- [ ] Write `prompts.py` (system prompts in FR and EN)
-- [ ] Implement `agent/app.py` (Chainlit entry point)
+- [x] Implement `sql_tool.py` (natural language → DuckDB SQL via LLM)
+- [x] Implement `rating_tool.py` (add/update rating via FastAPI)
+- [x] Implement `recommend_tool.py` (cross-domain recommendations)
+- [x] Implement `graph.py` (LangGraph agent with state, tools, memory)
+- [x] Write `prompts.py` (system prompts in FR and EN)
+- [x] Implement `agent/app.py` (Chainlit entry point)
 
 **Branch:** `feat/langgraph-agent`
 
