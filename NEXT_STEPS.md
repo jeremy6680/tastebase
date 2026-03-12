@@ -61,15 +61,29 @@
 
 ## Phase 4 — Silver layer (normalization + deduplication)
 
-- [ ] Write `stg_music.sql` (MusicBuddy primary, Spotify enrichment)
-- [ ] Write `stg_books.sql` (BookBuddy + Goodreads, manga detection)
-- [ ] Write `stg_movies.sql` (MovieBuddy + Letterboxd + Trakt, anime detection)
-- [ ] Write `stg_series.sql` (Trakt shows, anime excluded)
-- [ ] Write `stg_anime.sql` (MovieBuddy + Trakt, anime only)
-- [ ] Add dbt seeds: `manga_publishers.csv`, `domain_mapping.csv`
-- [ ] Implement deduplication logic (canonical ID → rating priority → date)
-- [ ] Normalize all ratings to 1–5 integer scale
+- [x] Add dbt seeds: `manga_publishers.csv`, `domain_mapping.csv`
+- [x] Write `stg_music.sql` (MusicBuddy primary, Spotify enrichment via LEFT JOIN)
+- [x] Write `stg_books.sql` (BookBuddy + Goodreads, manga detection via publisher + keywords)
+- [x] Write `stg_movies.sql` (MovieBuddy + Letterboxd + Trakt, deduplication via IMDB ID)
+- [x] Write `stg_series.sql` (MovieBuddy TV Show + Trakt shows, anime excluded)
+- [x] Write `stg_anime.sql` (MovieBuddy TV Show + Trakt, anime only — see known issue)
+- [x] Implement deduplication logic (canonical ID → rating priority → date)
+- [x] Normalize all ratings to 1–5 integer scale
 - [ ] Write dbt schema tests (not_null, unique, accepted_values)
+
+**Known issues / backlog from Phase 4:**
+- `stg_anime` returns 0 rows: MovieBuddy exports genre as "Animation" (TMDB), not "Anime".
+  Fix: enrich with production country (JP) or maintain a known anime titles seed.
+- `stg_series` contains anime titles (Bakuman, Death Note, Kuroko's Basketball, etc.)
+  until the anime detection signal is improved.
+- Spotify enrichment in `stg_music` returns 0 matches (rate-limited during dev).
+  Will resolve automatically when `make ingest` runs post rate-limit.
+- `raw_spotify.sql` uses a `pre_hook` to create `main.raw_spotify` if missing,
+  avoiding a circular dependency when Spotify hasn't been ingested yet.
+- `run_ingestion.py` had a kwarg mismatch (`csv_path` vs `file_path`) — fixed.
+- `raw_moviebuddy.sql` had a reserved word issue (`cast`) — fixed with quoting.
+- `dbt_project.yml` schema prefixes require `DUCKDB_PATH` to be an absolute path
+  in `.env` (relative paths are resolved from `transform/`, not the project root).
 
 **Branch:** `feat/silver-layer`
 
@@ -179,7 +193,8 @@
 - [ ] MyAnimeList API integration
 - [ ] OpenLibrary / Google Books cover enrichment
 - [ ] Smoke test Spotify `_fetch_saved_albums` (token rate-limited during Phase 3 — retest when limit lifts)
-- [ ] Spotify cover art enrichment for albums
+- [ ] Spotify cover art enrichment for albums (Spotify enrichment in stg_music is ready, awaiting data)
+- [ ] Anime detection improvement: enrich with production country (JP) or maintain a known anime titles seed to fix stg_anime 0-row issue
 - [ ] Multi-user support (separate DuckDB per user, or schema-per-user)
 - [ ] Export taste profile as JSON/CSV
 - [ ] Recommendation engine using embeddings (sentence-transformers)

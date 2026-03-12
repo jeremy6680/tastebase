@@ -2,37 +2,37 @@
 -- Bronze layer — Spotify API raw data.
 --
 -- This model materializes the raw_spotify table written by SpotifyClient.
--- No transformation is applied here — data is stored exactly as received
--- from the Spotify Web API, with the JSON payload as a raw string.
+-- No transformation is applied — data is stored exactly as received from
+-- the Spotify Web API.
+--
+-- The pre-hook ensures the source table (main.raw_spotify) always exists,
+-- even when Spotify ingestion hasn't run yet (e.g. rate-limited).
+-- When Spotify is ingested, make ingest populates main.raw_spotify,
+-- and the next dbt run picks up the real data automatically.
 --
 -- Endpoints covered:
---   - saved_albums      : albums saved in the user's library
---   - recently_played   : last 50 played tracks
---   - top_artists       : top artists across short/medium/long term
---   - top_tracks        : top tracks across short/medium/long term
+--   - saved_albums, recently_played, top_artists, top_tracks
 --
--- Audit columns injected by BaseLoader:
---   - _source     : always 'spotify'
---   - _loaded_at  : UTC timestamp of the ingestion run
+-- Audit columns: _source = 'spotify', _loaded_at = UTC timestamp
 
 {{ config(
     materialized='table',
-    tags=['bronze', 'spotify']
+    tags=['bronze', 'spotify'],
+    pre_hook="
+        CREATE TABLE IF NOT EXISTS main.raw_spotify (
+            endpoint    VARCHAR,
+            fetched_at  VARCHAR,
+            payload     VARCHAR,
+            _source     VARCHAR,
+            _loaded_at  TIMESTAMPTZ
+        )
+    "
 ) }}
 
 SELECT
-    -- Endpoint identifier: which Spotify API call produced this row
     endpoint,
-
-    -- ISO 8601 UTC timestamp of when this batch was fetched
     fetched_at,
-
-    -- Raw JSON payload from the Spotify API (stored as string)
-    -- json_extract() in silver models will parse individual fields
     payload,
-
-    -- Audit columns (injected by BaseLoader, never modified here)
     _source,
     _loaded_at
-
-FROM raw_spotify
+FROM main.raw_spotify

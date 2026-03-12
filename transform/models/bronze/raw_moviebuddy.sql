@@ -6,6 +6,8 @@
 --   content_type = "TV Show" + genres like "Anime"  → anime
 --   content_type = "TV Show" + no anime genre        → series
 -- Primary dedup key (silver): imdb_id → tmdb_id → title + release_year
+--
+-- Note: "cast" is a reserved word in DuckDB and must be quoted.
 
 {{ config(materialized='table') }}
 
@@ -27,7 +29,7 @@ SELECT
     directors,
     tv_creators,
     tv_networks,
-    cast,
+    "cast",                 -- quoted: reserved word in DuckDB
     languages,
     summary,
     film_rating,

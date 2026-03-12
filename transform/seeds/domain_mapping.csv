@@ -1,0 +1,20 @@
+source_value,domain,source_field,source_name
+manga,manga,category,bookbuddy
+manhwa,manga,category,bookbuddy
+manhua,manga,category,bookbuddy
+bd,manga,category,bookbuddy
+bande dessinée,manga,category,bookbuddy
+comic,manga,category,bookbuddy
+comics,manga,category,bookbuddy
+graphic novel,manga,category,bookbuddy
+manga,manga,tags,bookbuddy
+manhwa,manga,tags,bookbuddy
+manhua,manga,tags,bookbuddy
+bd,manga,tags,bookbuddy
+manga,manga,bookshelves,goodreads
+manhwa,manga,bookshelves,goodreads
+manhua,manga,bookshelves,goodreads
+bd,manga,bookshelves,goodreads
+bande-dessinee,manga,bookshelves,goodreads
+comics,manga,bookshelves,goodreads
+graphic-novels,manga,bookshelves,goodreads
