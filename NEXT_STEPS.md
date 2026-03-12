@@ -32,16 +32,16 @@
 
 ## Phase 2 — CSV ingestion (bronze layer)
 
-- [ ] Implement `base_loader.py` (abstract base class for all loaders)
-- [ ] Implement `musicbuddy_loader.py`
-- [ ] Implement `bookbuddy_loader.py`
-- [ ] Implement `goodreads_loader.py`
-- [ ] Implement `moviebuddy_loader.py`
-- [ ] Implement `letterboxd_loader.py`
-- [ ] Implement `generic_loader.py` (handles user CSV templates)
-- [ ] Implement `run_ingestion.py` (orchestrator)
-- [ ] Write bronze dbt models (`raw_` prefix, materialized as `table`)
-- [ ] Write pytest tests for all loaders
+- [x] Implement `base_loader.py` (abstract base class for all loaders)
+- [x] Implement `musicbuddy_loader.py`
+- [x] Implement `bookbuddy_loader.py`
+- [x] Implement `goodreads_loader.py`
+- [x] Implement `moviebuddy_loader.py`
+- [x] Implement `letterboxd_loader.py`
+- [x] Implement `generic_loader.py` (handles user CSV templates)
+- [x] Implement `run_ingestion.py` (orchestrator)
+- [x] Write bronze dbt models (`raw_` prefix, materialized as `table`)
+- [x] Write pytest tests for all loaders
 
 **Branch:** `feat/csv-ingestion-bronze`
 
