@@ -24,7 +24,7 @@ from fastapi import HTTPException
 logger = logging.getLogger(__name__)
 
 # DuckDB schema names produced by dbt (dbt prefixes `main_` to custom schemas)
-_SEARCH_PATH = "main_gold, main_silver, main_bronze, main"
+_SEARCH_PATH = "main_gold,main_silver,main_bronze,main"
 
 
 def get_db() -> Generator[duckdb.DuckDBPyConnection, None, None]:
