@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routers import categories, ingestion, items, ratings, stats
+from api.routers.categories import batch_router as categories_batch_router
 from api.routers.categories import ensure_table
 
 # ---------------------------------------------------------------------------
@@ -116,6 +117,7 @@ def create_app() -> FastAPI:
     app.include_router(items.router)
     app.include_router(ratings.router)
     app.include_router(categories.router)
+    app.include_router(categories_batch_router)
     app.include_router(stats.router)
     app.include_router(ingestion.router)
 

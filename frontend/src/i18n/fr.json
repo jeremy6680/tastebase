@@ -48,6 +48,12 @@
     "sort_year": "Année",
     "sort_rating": "Note"
   },
+  "batch": {
+    "selected": "{n} sélectionné | {n} sélectionnés",
+    "clear": "Tout désélectionner",
+    "apply": "Appliquer",
+    "hint": "Cliquez sur d'autres cards pour les ajouter à la sélection. Appuyez sur Échap pour annuler."
+  },
   "category": {
     "genre": "Genre",
     "sub_genre": "Sous-genre",

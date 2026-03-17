@@ -24,16 +24,17 @@
       @reset="resetFilters"
     />
 
+    <!-- Selection hint — shown once any card is selected -->
+    <p v-if="selectionMode" class="item-browser__selection-hint">
+      {{ $t('batch.hint') }}
+    </p>
+
     <!-- Grid -->
     <div class="item-browser__grid">
 
       <!-- Skeleton loading -->
       <template v-if="loading">
-        <div
-          v-for="n in filters.page_size"
-          :key="n"
-          class="item-card-skeleton"
-        >
+        <div v-for="n in filters.page_size" :key="n" class="item-card-skeleton">
           <div class="item-card-skeleton__bar" />
           <div class="item-card-skeleton__body">
             <div class="skeleton skeleton--title" />
@@ -47,11 +48,7 @@
       <div v-else-if="!loading && items.length === 0" class="item-browser__empty">
         <p class="item-browser__empty-icon">◎</p>
         <p class="item-browser__empty-text">{{ $t('browse.no_results') }}</p>
-        <button
-          v-if="hasActiveFilters"
-          class="item-browser__empty-reset"
-          @click="resetFilters"
-        >
+        <button v-if="hasActiveFilters" class="item-browser__empty-reset" @click="resetFilters">
           {{ $t('browse.reset_filters') }}
         </button>
       </div>
@@ -61,6 +58,10 @@
         v-for="item in items"
         :key="item.id"
         :item="item"
+        :selected="selectedIds.has(item.id)"
+        :selection-mode="selectionMode"
+        :external-category="appliedCategories.get(item.id) ?? null"
+        @select="toggleSelection"
       />
     </div>
 
@@ -91,25 +92,33 @@
       <button class="item-browser__retry" @click="loadItems">{{ $t('common.retry') }}</button>
     </div>
 
+    <!-- Batch category bar (Teleported to body) -->
+    <BatchCategoryBar
+      :count="selectedIds.size"
+      :domain="domainKey"
+      :domain-color="domain.color"
+      @apply="applyBatchCategory"
+      @clear="clearSelection"
+    />
+
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { fetchItems } from '@/api/items'
+import { batchUpsertCategories } from '@/api/categories'
 import { getDomain } from '@/config/domains'
 import FilterBar from '@/components/FilterBar.vue'
 import ItemCard from '@/components/ItemCard.vue'
+import BatchCategoryBar from '@/components/BatchCategoryBar.vue'
 
 const props = defineProps({
   /** Domain key: 'music' | 'book' | 'manga' | 'movie' | 'series' | 'anime' */
-  domainKey: {
-    type: String,
-    required: true,
-  },
+  domainKey: { type: String, required: true },
 })
 
-// Domain config (color, icon, label)
+// Domain config
 const domain = computed(() => getDomain(props.domainKey) || getDomain('music'))
 
 // Filter + pagination state
@@ -129,7 +138,7 @@ const total = ref(0)
 const loading = ref(false)
 const error = ref(null)
 
-// Computed pagination helpers
+// Pagination helpers
 const totalPages = computed(() => Math.ceil(total.value / filters.value.page_size))
 const rangeStart = computed(() => (filters.value.page - 1) * filters.value.page_size + 1)
 const rangeEnd = computed(() => Math.min(filters.value.page * filters.value.page_size, total.value))
@@ -137,13 +146,79 @@ const hasActiveFilters = computed(
   () => !!filters.value.search || !!filters.value.min_rating || !!filters.value.decade
 )
 
+// ── Multi-selection state ─────────────────────────────────────────────────
+
+/** Set of selected item IDs */
+const selectedIds = ref(new Set())
+
+/** True when at least one card is selected */
+const selectionMode = computed(() => selectedIds.value.size > 0)
+
 /**
- * Fetch items from the API using current filter state.
+ * Map of item_id → Category for items that were batch-categorised this session.
+ * Passed down to ItemCard as externalCategory to avoid re-fetching.
  */
+const appliedCategories = ref(new Map())
+
+/** Toggle an item in/out of the selection set */
+function toggleSelection(itemId) {
+  const next = new Set(selectedIds.value)
+  if (next.has(itemId)) {
+    next.delete(itemId)
+  } else {
+    next.add(itemId)
+  }
+  selectedIds.value = next
+}
+
+/** Clear all selections */
+function clearSelection() {
+  selectedIds.value = new Set()
+}
+
+/**
+ * Apply a category to all currently selected items via the batch endpoint.
+ * Updates appliedCategories so cards reflect the change without re-fetching.
+ *
+ * @param {{ genre: string, sub_genre?: string }} payload
+ */
+async function applyBatchCategory(payload) {
+  const ids = [...selectedIds.value]
+  if (!ids.length) return
+
+  try {
+    const saved = await batchUpsertCategories(ids, payload)
+    // Push results into the local map so cards update reactively
+    const next = new Map(appliedCategories.value)
+    for (const cat of saved) {
+      next.set(cat.item_id, cat)
+    }
+    appliedCategories.value = next
+    clearSelection()
+  } catch (err) {
+    console.error('Batch category apply failed:', err)
+  }
+}
+
+// Escape key clears selection
+function onKeyDown(e) {
+  if (e.key === 'Escape' && selectionMode.value) {
+    clearSelection()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeyDown)
+  loadItems()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeyDown)
+})
+
 async function loadItems() {
   loading.value = true
   error.value = null
-
   try {
     const data = await fetchItems({
       domain: props.domainKey,
@@ -166,12 +241,10 @@ async function loadItems() {
   }
 }
 
-/** Navigate to a specific page */
 function setPage(n) {
   filters.value = { ...filters.value, page: n }
 }
 
-/** Reset all filters to defaults (preserves sort settings) */
 function resetFilters() {
   filters.value = {
     search: '',
@@ -184,18 +257,16 @@ function resetFilters() {
   }
 }
 
-// Re-fetch whenever filters change
 watch(filters, loadItems, { deep: true })
-
-onMounted(loadItems)
 </script>
 
 <style lang="scss" scoped>
 .item-browser {
   padding-top: $space-2;
+  // Extra bottom padding so batch bar doesn't overlap last row
+  padding-bottom: $space-20;
 }
 
-// Header
 .item-browser__header {
   display: flex;
   align-items: center;
@@ -218,9 +289,7 @@ onMounted(loadItems)
   letter-spacing: -0.03em;
   line-height: $line-height-tight;
 
-  @media (max-width: #{$bp-md - 1px}) {
-    font-size: $text-3xl;
-  }
+  @media (max-width: #{$bp-md - 1px}) { font-size: $text-3xl; }
 }
 
 .item-browser__count {
@@ -229,7 +298,14 @@ onMounted(loadItems)
   margin-top: $space-2;
 }
 
-// Grid
+// Selection hint
+.item-browser__selection-hint {
+  font-size: $text-xs;
+  color: $color-text-muted;
+  margin-bottom: $space-4;
+  font-style: italic;
+}
+
 .item-browser__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -242,13 +318,11 @@ onMounted(loadItems)
   }
 }
 
-// Skeleton card
 .item-card-skeleton {
   background-color: $color-bg-card;
   border: 1px solid $color-border-subtle;
   border-radius: $radius-lg;
   overflow: hidden;
-  animation: card-enter 0.4s ease both;
 }
 
 .item-card-skeleton__bar {
@@ -263,7 +337,6 @@ onMounted(loadItems)
   gap: $space-3;
 }
 
-// Skeleton placeholders
 .skeleton {
   background: linear-gradient(
     90deg,
@@ -280,7 +353,6 @@ onMounted(loadItems)
   &--footer  { height: 12px; width: 40%; margin-top: $space-2; }
 }
 
-// Empty state
 .item-browser__empty {
   grid-column: 1 / -1;
   display: flex;
@@ -309,13 +381,9 @@ onMounted(loadItems)
   text-decoration: underline;
   text-underline-offset: 3px;
   transition: color $transition-fast;
-
-  &:hover {
-    color: $color-text-primary;
-  }
+  &:hover { color: $color-text-primary; }
 }
 
-// Pagination
 .item-browser__pagination {
   display: flex;
   align-items: center;
@@ -336,10 +404,7 @@ onMounted(loadItems)
   border: 1px solid $color-border-subtle;
   color: $color-text-secondary;
   font-size: $text-xl;
-  transition:
-    color $transition-fast,
-    border-color $transition-fast,
-    background-color $transition-fast;
+  transition: color $transition-fast, border-color $transition-fast, background-color $transition-fast;
 
   &:hover:not(:disabled) {
     color: $color-text-primary;
@@ -347,10 +412,7 @@ onMounted(loadItems)
     background-color: rgba(201, 169, 110, 0.06);
   }
 
-  &:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-  }
+  &:disabled { opacity: 0.3; cursor: not-allowed; }
 }
 
 .pagination__info {
@@ -361,7 +423,6 @@ onMounted(loadItems)
   text-align: center;
 }
 
-// Error
 .item-browser__error {
   text-align: center;
   padding: $space-8;
@@ -376,11 +437,7 @@ onMounted(loadItems)
   font-size: $text-sm;
   color: $color-text-secondary;
   transition: border-color $transition-fast, color $transition-fast;
-
-  &:hover {
-    border-color: $color-accent;
-    color: $color-accent;
-  }
+  &:hover { border-color: $color-accent; color: $color-accent; }
 }
 
 @keyframes card-enter {

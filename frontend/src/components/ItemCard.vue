@@ -2,8 +2,18 @@
   <article
     class="item-card"
     :style="{ '--domain-color': domainColor }"
-    :class="{ 'item-card--rated': item.rating }"
+    :class="{
+      'item-card--rated': item.rating,
+      'item-card--selected': selected,
+      'item-card--selectable': selectionMode,
+    }"
+    @click="onCardClick"
   >
+    <!-- Selection checkbox overlay -->
+    <div v-if="selectionMode || selected" class="item-card__checkbox" aria-hidden="true">
+      <span class="item-card__checkbox-inner">{{ selected ? '✓' : '' }}</span>
+    </div>
+
     <!-- Domain accent bar -->
     <div class="item-card__bar" aria-hidden="true" />
 
@@ -14,24 +24,28 @@
         <p v-if="item.creator" class="item-card__creator">{{ item.creator }}</p>
       </div>
 
-      <!-- Category badge (if set) -->
-      <div v-if="category && !editingCategory" class="item-card__category">
-        <span class="item-card__category-badge" @click="editingCategory = true">
+      <!-- Category badge (if set) — hidden in selection mode -->
+      <div v-if="category && !editingCategory && !selectionMode" class="item-card__category">
+        <span class="item-card__category-badge" @click.stop="editingCategory = true">
           {{ categoryLabel }}
         </span>
       </div>
 
-      <!-- Category selector (inline edit) -->
-      <div v-if="editingCategory" class="item-card__category-edit">
+      <!-- Category selector (inline edit) — hidden in selection mode -->
+      <div v-if="editingCategory && !selectionMode" class="item-card__category-edit">
         <CategorySelector
           v-model="categoryDraft"
           :domain="item.domain"
         />
         <div class="item-card__category-actions">
-          <button class="item-card__category-save" :disabled="!categoryDraft.genre" @click="saveCategory">
+          <button
+            class="item-card__category-save"
+            :disabled="!categoryDraft.genre"
+            @click.stop="saveCategory"
+          >
             {{ $t('common.save') }}
           </button>
-          <button class="item-card__category-cancel" @click="cancelEdit">
+          <button class="item-card__category-cancel" @click.stop="cancelEdit">
             {{ $t('common.cancel') }}
           </button>
         </div>
@@ -45,12 +59,12 @@
           <StarRating v-if="item.rating" :rating="item.rating" />
           <span v-else class="item-card__unrated">{{ $t('common.no_rating') }}</span>
 
-          <!-- Set category button — only shown if no category yet and not editing -->
+          <!-- Set category button — hidden in selection mode -->
           <button
-            v-if="!category && !editingCategory"
+            v-if="!category && !editingCategory && !selectionMode"
             class="item-card__tag-btn"
             :title="$t('category.set')"
-            @click="editingCategory = true"
+            @click.stop="editingCategory = true"
           >
             ⊕
           </button>
@@ -61,7 +75,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { getDomain } from '@/config/domains'
 import { getGenreLabel, getSubGenreLabel } from '@/config/categories'
 import { fetchCategory, upsertCategory } from '@/api/categories'
@@ -70,24 +84,30 @@ import CategorySelector from '@/components/CategorySelector.vue'
 
 const props = defineProps({
   /** TasteItemSummary object from the API */
-  item: {
-    type: Object,
-    required: true,
-  },
+  item: { type: Object, required: true },
+  /** Whether this card is currently selected for batch operations */
+  selected: { type: Boolean, default: false },
+  /** Whether the grid is in selection mode (any card selected) */
+  selectionMode: { type: Boolean, default: false },
+  /** Externally provided category (avoids redundant API calls in batch refresh) */
+  externalCategory: { type: Object, default: null },
 })
+
+const emit = defineEmits(['select'])
 
 // Domain color
-const domainColor = computed(() => {
-  const d = getDomain(props.item.domain)
-  return d?.color ?? '#c9a96e'
-})
+const domainColor = computed(() => getDomain(props.item.domain)?.color ?? '#c9a96e')
 
 // Category state
-const category = ref(null)
+const category = ref(props.externalCategory)
 const editingCategory = ref(false)
 const categoryDraft = ref({ genre: '', sub_genre: '' })
 
-// Human-readable label for the current category
+// When a batch apply happens, parent may push updated category down
+watch(() => props.externalCategory, (val) => {
+  if (val) category.value = val
+})
+
 const categoryLabel = computed(() => {
   if (!category.value) return ''
   const genre = getGenreLabel(props.item.domain, category.value.genre)
@@ -96,19 +116,30 @@ const categoryLabel = computed(() => {
   return `${genre} · ${sub}`
 })
 
-/** Load current category from API (best-effort, non-blocking) */
+/**
+ * Handle card click:
+ * - Cmd/Ctrl+click → emit 'select' for batch selection
+ * - Normal click in selection mode → also emit 'select'
+ * - Normal click otherwise → do nothing (child buttons handle their own clicks)
+ */
+function onCardClick(event) {
+  if (event.metaKey || event.ctrlKey || props.selectionMode) {
+    event.preventDefault()
+    emit('select', props.item.id)
+  }
+}
+
 async function loadCategory() {
+  if (props.externalCategory) return
   try {
     category.value = await fetchCategory(props.item.id)
   } catch {
-    // No category set yet — silently ignore 404
     category.value = null
   }
 }
 
 function cancelEdit() {
   editingCategory.value = false
-  // Restore draft to current saved category
   categoryDraft.value = {
     genre: category.value?.genre ?? '',
     sub_genre: category.value?.sub_genre ?? '',
@@ -154,6 +185,53 @@ onMounted(loadCategory)
   &--rated .item-card__bar {
     background-color: var(--domain-color);
   }
+
+  // Selectable mode: show pointer and subtle ring
+  &--selectable {
+    cursor: pointer;
+
+    &:hover {
+      border-color: var(--domain-color);
+    }
+  }
+
+  // Selected state
+  &--selected {
+    border-color: var(--domain-color);
+    background-color: color-mix(in srgb, var(--domain-color) 8%, $color-bg-card);
+    transform: translateY(-1px);
+
+    .item-card__bar {
+      background-color: var(--domain-color);
+    }
+  }
+}
+
+// Checkbox overlay (top-left corner)
+.item-card__checkbox {
+  position: absolute;
+  top: $space-2;
+  left: $space-2;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  border-radius: $radius-sm;
+  border: 2px solid var(--domain-color);
+  background-color: $color-bg-card;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  .item-card--selected & {
+    background-color: var(--domain-color);
+  }
+}
+
+.item-card__checkbox-inner {
+  font-size: 11px;
+  font-weight: bold;
+  color: $color-bg;
+  line-height: 1;
 }
 
 .item-card__bar {
@@ -172,9 +250,7 @@ onMounted(loadCategory)
   gap: $space-3;
 }
 
-.item-card__main {
-  flex: 1;
-}
+.item-card__main { flex: 1; }
 
 .item-card__title {
   font-family: $font-display;
@@ -197,10 +273,7 @@ onMounted(loadCategory)
   text-overflow: ellipsis;
 }
 
-// Category badge
-.item-card__category {
-  display: flex;
-}
+.item-card__category { display: flex; }
 
 .item-card__category-badge {
   display: inline-flex;
@@ -209,7 +282,6 @@ onMounted(loadCategory)
   border-radius: $radius-sm;
   font-size: $text-xs;
   color: var(--domain-color);
-  background-color: rgba(var(--domain-color-rgb, 201 169 110), 0.1);
   border: 1px solid currentColor;
   opacity: 0.8;
   cursor: pointer;
@@ -219,12 +291,9 @@ onMounted(loadCategory)
   text-overflow: ellipsis;
   white-space: nowrap;
 
-  &:hover {
-    opacity: 1;
-  }
+  &:hover { opacity: 1; }
 }
 
-// Inline category editor
 .item-card__category-edit {
   display: flex;
   flex-direction: column;
@@ -249,7 +318,6 @@ onMounted(loadCategory)
   background-color: var(--domain-color);
   color: $color-bg;
   opacity: 0.9;
-
   &:hover:not(:disabled) { opacity: 1; }
   &:disabled { opacity: 0.3; cursor: not-allowed; }
 }
@@ -257,11 +325,9 @@ onMounted(loadCategory)
 .item-card__category-cancel {
   border: 1px solid $color-border-subtle;
   color: $color-text-muted;
-
   &:hover { color: $color-text-primary; border-color: $color-border; }
 }
 
-// Footer
 .item-card__footer {
   display: flex;
   align-items: center;
@@ -292,9 +358,6 @@ onMounted(loadCategory)
   color: $color-text-muted;
   line-height: 1;
   transition: color $transition-fast;
-
-  &:hover {
-    color: var(--domain-color);
-  }
+  &:hover { color: var(--domain-color); }
 }
 </style>

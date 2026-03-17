@@ -14,11 +14,12 @@ import duckdb
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.dependencies import get_db
-from api.schemas.category import Category, CategoryUpsert
+from api.schemas.category import Category, CategoryBatch, CategoryUpsert
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/items", tags=["categories"])
+batch_router = APIRouter(prefix="/categories", tags=["categories"])
 
 # DDL executed once at app startup (see api/main.py lifespan)
 _CREATE_TABLE_SQL = """
@@ -145,6 +146,72 @@ def upsert_category(
         sub_genre=payload.sub_genre,
         updated_at=now,
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /categories/batch
+# ---------------------------------------------------------------------------
+
+
+@batch_router.post("/batch", response_model=list[Category])
+def batch_upsert_categories(
+    payload: CategoryBatch,
+    db: duckdb.DuckDBPyConnection = Depends(get_db),
+) -> list[Category]:
+    """Apply the same genre/sub_genre to multiple items in one request.
+
+    Items that do not exist in mart_unified_tastes are silently skipped.
+    Returns only the categories that were actually saved.
+
+    Args:
+        payload: List of item_ids + genre + optional sub_genre.
+        db: DuckDB connection injected by FastAPI.
+
+    Returns:
+        list[Category]: Saved categories, one per matched item.
+    """
+    if not payload.item_ids:
+        return []
+
+    now = datetime.now(timezone.utc)
+
+    # Resolve which item_ids actually exist and fetch their domains
+    placeholders = ", ".join(["?"] * len(payload.item_ids))
+    rows = db.execute(
+        f"SELECT id, domain FROM mart_unified_tastes WHERE id IN ({placeholders})",
+        payload.item_ids,
+    ).fetchall()
+
+    if not rows:
+        return []
+
+    # Upsert each found item
+    saved: list[Category] = []
+    for item_id, domain in rows:
+        db.execute(
+            """
+            INSERT INTO mart_item_categories (item_id, domain, genre, sub_genre, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (item_id) DO UPDATE SET
+                genre      = excluded.genre,
+                sub_genre  = excluded.sub_genre,
+                updated_at = excluded.updated_at
+            """,
+            [item_id, domain, payload.genre, payload.sub_genre, now],
+        )
+        saved.append(Category(
+            item_id=item_id,
+            domain=domain,
+            genre=payload.genre,
+            sub_genre=payload.sub_genre,
+            updated_at=now,
+        ))
+
+    logger.info(
+        "Batch category upsert: %d/%d items saved (genre=%s)",
+        len(saved), len(payload.item_ids), payload.genre,
+    )
+    return saved
 
 
 # ---------------------------------------------------------------------------

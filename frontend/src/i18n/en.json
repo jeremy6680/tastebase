@@ -48,6 +48,12 @@
     "sort_year": "Year",
     "sort_rating": "Rating"
   },
+  "batch": {
+    "selected": "{n} selected",
+    "clear": "Clear selection",
+    "apply": "Apply",
+    "hint": "Click other cards to add them to the selection. Press Escape to cancel."
+  },
   "category": {
     "genre": "Genre",
     "sub_genre": "Sub-genre",

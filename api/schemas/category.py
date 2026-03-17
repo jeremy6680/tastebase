@@ -31,6 +31,24 @@ class CategoryUpsert(BaseModel):
         return None
 
 
+class CategoryBatch(BaseModel):
+    """Payload for POST /categories/batch."""
+
+    item_ids: list[str]
+    genre: str
+    sub_genre: str | None = None
+
+    @field_validator("item_ids")
+    @classmethod
+    def ids_not_empty(cls, v: list[str]) -> list[str]:
+        """Ensure at least one item_id is provided."""
+        if not v:
+            raise ValueError("item_ids must not be empty")
+        if len(v) > 200:
+            raise ValueError("Cannot batch more than 200 items at once")
+        return v
+
+
 class Category(BaseModel):
     """Current category for a taste item."""
 

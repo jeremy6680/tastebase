@@ -23,3 +23,15 @@ export function fetchCategory(itemId) {
 export function upsertCategory(itemId, payload) {
   return client.post(`/items/${itemId}/category`, payload)
 }
+
+/**
+ * Apply the same genre/sub_genre to multiple items at once.
+ * Maps to POST /categories/batch.
+ *
+ * @param {string[]} itemIds - List of SHA256 item identifiers
+ * @param {{ genre: string, sub_genre?: string }} payload
+ * @returns {Promise<Array>} list of saved Category objects
+ */
+export function batchUpsertCategories(itemIds, payload) {
+  return client.post('/categories/batch', { item_ids: itemIds, ...payload })
+}
