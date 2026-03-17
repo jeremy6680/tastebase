@@ -128,6 +128,8 @@ def list_items(
     min_rating: int | None = Query(None, ge=1, le=5, description="Minimum rating"),
     search: str | None = Query(None, description="Search title or creator (case-insensitive, partial match)"),
     decade: int | None = Query(None, description="Filter by decade start year (e.g. 1990 for the 1990s)"),
+    genre: str | None = Query(None, description="Filter by genre (from mart_item_categories)"),
+    sub_genre: str | None = Query(None, description="Filter by sub_genre (requires genre)"),
     sort_by: str = Query("title", description="Sort field: title | creator | year | rating"),
     sort_dir: str = Query("asc", description="Sort direction: asc | desc"),
     limit: int | None = Query(None, ge=1, le=200, description="Max results (used by agent tools, overrides page_size)"),
@@ -179,6 +181,18 @@ def list_items(
             conditions.append("t.year >= ? AND t.year < ?")
             params.extend([decade, decade + 10])
 
+    # Genre filter — requires a JOIN with mart_item_categories
+    category_join = ""
+    if genre:
+        category_join = "INNER JOIN mart_item_categories c ON t.id = c.item_id"
+        conditions.append("c.genre = ?")
+        params.append(genre)
+        if sub_genre:
+            conditions.append("c.sub_genre = ?")
+            params.append(sub_genre)
+    else:
+        category_join = "LEFT JOIN mart_item_categories c ON t.id = c.item_id"
+
     where_clause = " AND ".join(conditions)
 
     # Resolve sort column (whitelist to prevent SQL injection)
@@ -195,6 +209,7 @@ def list_items(
         SELECT COUNT(*)
         FROM mart_unified_tastes t
         LEFT JOIN mart_ratings r ON t.id = r.item_id
+        {category_join}
         WHERE {where_clause}
     """
     total = db.execute(count_sql, params).fetchone()[0]
@@ -203,6 +218,7 @@ def list_items(
         SELECT t.id, t.domain, t.title, t.creator, t.year, r.rating, t.status
         FROM mart_unified_tastes t
         LEFT JOIN mart_ratings r ON t.id = r.item_id
+        {category_join}
         WHERE {where_clause}
         ORDER BY {order_clause}
         LIMIT ? OFFSET ?
@@ -254,7 +270,7 @@ def get_item(
         SELECT
             t.id, t.domain, t.source, t.source_id, t.title, t.creator,
             t.year, t.genres, t.cover_url, t.external_ids, t.status,
-            t.date_added, t.date_consumed, t.created_at, t.updated_at,
+            t.date_added, t.date_consumed, NULL, NULL,
             r.rating
         FROM mart_unified_tastes t
         LEFT JOIN mart_ratings r ON t.id = r.item_id
@@ -304,13 +320,16 @@ def create_item(
     if existing:
         raise HTTPException(status_code=409, detail=f"Item '{item_id}' already exists.")
 
+    # genres is stored as VARCHAR (comma-separated) in the gold table
+    genres_str = ", ".join(payload.genres) if payload.genres else None
+
     db.execute(
         """
         INSERT INTO mart_unified_tastes (
             id, domain, source, source_id, title, creator, year,
             genres, cover_url, external_ids, status,
-            date_added, date_consumed, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            date_added, date_consumed
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             item_id,
@@ -320,14 +339,12 @@ def create_item(
             payload.title,
             payload.creator,
             payload.year,
-            payload.genres,
+            genres_str,
             payload.cover_url,
             json.dumps(payload.external_ids),
             payload.status,
             payload.date_added or now,
             payload.date_consumed,
-            now,
-            now,
         ],
     )
 
@@ -351,6 +368,48 @@ def create_item(
         )
 
     return get_item(item_id, db)
+
+
+# ---------------------------------------------------------------------------
+# DELETE /items/{item_id}
+# ---------------------------------------------------------------------------
+
+
+@router.delete("/{item_id}", status_code=204)
+def delete_item(
+    item_id: str,
+    db: duckdb.DuckDBPyConnection = Depends(get_db),
+) -> None:
+    """Permanently delete a taste item and all its associated data.
+
+    Removes the item from mart_unified_tastes, mart_ratings,
+    mart_rating_events, and mart_item_categories.
+
+    Note: this is a hard delete. Only items created manually (source='manual')
+    can be meaningfully deleted — dbt-managed items will reappear on the next
+    pipeline run. The API does not enforce this constraint; it is the caller's
+    responsibility.
+
+    Args:
+        item_id: SHA256 item identifier.
+        db: DuckDB connection injected by FastAPI.
+
+    Raises:
+        HTTPException: 404 if the item does not exist.
+    """
+    existing = db.execute(
+        "SELECT id FROM mart_unified_tastes WHERE id = ?", [item_id]
+    ).fetchone()
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"Item '{item_id}' not found.")
+
+    # Delete in dependency order (satellite tables first)
+    db.execute("DELETE FROM mart_item_categories WHERE item_id = ?", [item_id])
+    db.execute("DELETE FROM mart_rating_events WHERE item_id = ?", [item_id])
+    db.execute("DELETE FROM mart_ratings WHERE item_id = ?", [item_id])
+    db.execute("DELETE FROM mart_unified_tastes WHERE id = ?", [item_id])
+
+    logger.info("Deleted item %s", item_id)
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +464,7 @@ def update_item(
         updates["date_consumed"] = payload.date_consumed
 
     if updates:
-        updates["updated_at"] = datetime.now(timezone.utc)
+        # updated_at does not exist in mart_unified_tastes (dbt-managed table)
         set_clause = ", ".join(f"{col} = ?" for col in updates)
         values = list(updates.values()) + [item_id]
         db.execute(

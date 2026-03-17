@@ -54,6 +54,31 @@
     "apply": "Apply",
     "hint": "Click other cards to add them to the selection. Press Escape to cancel."
   },
+  "add_item": {
+    "title": "Add item",
+    "field_title": "Title",
+    "field_creator": "Author / Artist / Director",
+    "field_year": "Year",
+    "field_rating": "Rating",
+    "field_status": "Status",
+    "placeholder_title": "Title of the work",
+    "placeholder_artist": "Artist name",
+    "placeholder_author": "Author name",
+    "placeholder_director": "Director name",
+    "placeholder_creator": "Creator name",
+    "placeholder_studio": "Studio name",
+    "status_none": "\u2014 No status",
+    "status_owned": "Owned",
+    "status_prev_owned": "Previously owned",
+    "status_read": "Read",
+    "status_unread": "Unread",
+    "status_watched": "Watched",
+    "status_wishlist": "Wishlist",
+    "clear_rating": "Clear rating",
+    "submit": "Add",
+    "error_title_required": "Title is required",
+    "error_year_range": "Year must be between 1800 and 2100"
+  },
   "rating": {
     "save_error": "Failed to save rating"
   },
@@ -81,7 +106,9 @@
     "date_added": "Added on",
     "creator": "Creator",
     "no_rating": "Unrated",
-    "all": "All"
+    "all": "All",
+    "optional": "optional",
+    "delete": "Delete"
   },
   "language": {
     "fr": "Français",
