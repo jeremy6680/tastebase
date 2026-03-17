@@ -14,6 +14,17 @@
       <span class="item-card__checkbox-inner">{{ selected ? '✓' : '' }}</span>
     </div>
 
+    <!-- Delete button — visible on hover, hidden in selection mode -->
+    <button
+      v-if="!selectionMode"
+      class="item-card__delete-btn"
+      :class="{ 'item-card__delete-btn--loading': deleting }"
+      :title="$t('common.delete')"
+      :aria-label="$t('common.delete')"
+      :disabled="deleting"
+      @click.stop="confirmDelete"
+    >✕</button>
+
     <!-- Domain accent bar -->
     <div class="item-card__bar" aria-hidden="true" />
 
@@ -90,6 +101,7 @@ import { getDomain } from '@/config/domains'
 import { getGenreLabel, getSubGenreLabel } from '@/config/categories'
 import { fetchCategory, upsertCategory } from '@/api/categories'
 import { upsertRating } from '@/api/ratings'
+import { deleteItem } from '@/api/items'
 import StarRating from '@/components/StarRating.vue'
 import CategorySelector from '@/components/CategorySelector.vue'
 
@@ -100,7 +112,7 @@ const props = defineProps({
   externalCategory: { type: Object, default: null },
 })
 
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'deleted'])
 
 // ── Domain ────────────────────────────────────────────────────────────────
 const domainColor = computed(() => getDomain(props.item.domain)?.color ?? '#c9a96e')
@@ -160,6 +172,33 @@ function onCardClick(event) {
   if (event.metaKey || event.ctrlKey || props.selectionMode) {
     event.preventDefault()
     emit('select', props.item.id)
+  }
+}
+
+// ── Delete ───────────────────────────────────────────────────────────────
+const deleting = ref(false)
+
+/**
+ * Ask for confirmation then permanently delete this item.
+ * Emits 'deleted' on success so the parent can remove it from the grid.
+ */
+async function confirmDelete() {
+  if (deleting.value) return
+  // Native confirm — simple, no extra modal needed
+  const ok = window.confirm(
+    `Supprimer "${props.item.title}" ? Cette action est irréversible.`
+  )
+  if (!ok) return
+
+  deleting.value = true
+  try {
+    await deleteItem(props.item.id)
+    emit('deleted', props.item.id)
+  } catch (err) {
+    console.error('Failed to delete item:', err)
+    alert('Erreur lors de la suppression.')
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -256,6 +295,41 @@ onMounted(loadCategory)
   font-weight: bold;
   color: $color-bg;
   line-height: 1;
+}
+
+// Delete button — top-right corner, hidden until hover
+.item-card__delete-btn {
+  position: absolute;
+  top: $space-2;
+  right: $space-2;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  border-radius: $radius-sm;
+  background-color: $color-bg-elevated;
+  border: 1px solid $color-border-subtle;
+  color: $color-text-muted;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity $transition-fast, color $transition-fast, border-color $transition-fast;
+
+  .item-card:hover & {
+    opacity: 1;
+  }
+
+  &:hover {
+    color: $color-error;
+    border-color: $color-error;
+    background-color: rgba($color-error, 0.1);
+  }
+
+  &--loading {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 }
 
 .item-card__bar {

@@ -35,3 +35,38 @@ export function fetchItems(params = {}) {
 export function fetchItem(itemId) {
   return client.get(`/items/${itemId}`)
 }
+
+/**
+ * Create a new taste item.
+ * Maps to POST /items/.
+ *
+ * @param {Object} payload
+ * @param {string} payload.domain      - Domain key (music|book|manga|movie|series|anime)
+ * @param {string} payload.title       - Item title (required)
+ * @param {string} [payload.creator]   - Artist / author / director
+ * @param {number} [payload.year]      - Release year
+ * @param {number} [payload.rating]    - Initial rating (1–5)
+ * @param {string} [payload.status]    - owned|watched|read|wishlist|...
+ * @param {string[]} [payload.genres]  - Genre tags
+ * @returns {Promise<Object>} created TasteItem
+ */
+/**
+ * Delete a taste item permanently.
+ * Maps to DELETE /items/{item_id}.
+ *
+ * @param {string} itemId
+ * @returns {Promise<void>}
+ */
+export function deleteItem(itemId) {
+  return client.delete(`/items/${itemId}`)
+}
+
+export function createItem(payload) {
+  return client.post('/items/', {
+    source: 'manual',
+    source_id: null,
+    external_ids: {},
+    genres: [],
+    ...payload,
+  })
+}

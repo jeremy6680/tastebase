@@ -30,7 +30,7 @@
       </button>
     </div>
 
-    <!-- Row 2: Filters + Sort -->
+    <!-- Row 2: Rating + Decade + Genre -->
     <div class="filter-bar__row filter-bar__row--controls">
 
       <!-- Rating chips -->
@@ -63,6 +63,40 @@
         </div>
       </div>
 
+      <!-- Genre select (only shown when genres exist for this domain) -->
+      <div v-if="genreOptions.length > 0" class="filter-bar__group">
+        <span class="filter-bar__label">{{ $t('category.genre') }}</span>
+        <div class="filter-bar__sort">
+          <select
+            class="filter-bar__select"
+            :value="modelValue.genre || ''"
+            @change="setGenre($event.target.value)"
+          >
+            <option value="">{{ $t('common.all') }}</option>
+            <option
+              v-for="g in genreOptions"
+              :key="g.value"
+              :value="g.value"
+            >{{ g.label }}</option>
+          </select>
+
+          <!-- Sub-genre select — only shown when selected genre has sub-genres -->
+          <select
+            v-if="subGenreOptions.length > 0"
+            class="filter-bar__select"
+            :value="modelValue.sub_genre || ''"
+            @change="setSubGenre($event.target.value)"
+          >
+            <option value="">{{ $t('common.all') }}</option>
+            <option
+              v-for="s in subGenreOptions"
+              :key="s.value"
+              :value="s.value"
+            >{{ s.label }}</option>
+          </select>
+        </div>
+      </div>
+
       <!-- Sort -->
       <div class="filter-bar__group filter-bar__group--sort">
         <span class="filter-bar__label">{{ $t('browse.sort_by') }}</span>
@@ -76,7 +110,6 @@
               {{ opt.label }}
             </option>
           </select>
-          <!-- Direction toggle -->
           <button
             class="filter-bar__dir-btn"
             :title="modelValue.sort_dir === 'asc' ? $t('browse.sort_desc') : $t('browse.sort_asc')"
@@ -94,6 +127,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { getGenres, getSubGenres } from '@/config/categories'
 
 const { t } = useI18n()
 
@@ -107,6 +141,11 @@ const props = defineProps({
   domainColor: {
     type: String,
     default: '#c9a96e',
+  },
+  /** Domain key — used to build the genre/sub-genre lists */
+  domain: {
+    type: String,
+    default: '',
   },
 })
 
@@ -136,12 +175,12 @@ watch(
 // ── Static option lists ───────────────────────────────────────────────────
 
 const ratingOptions = [
-  { value: null,  label: t('common.all') },
-  { value: 1,     label: '★+' },
-  { value: 2,     label: '★★+' },
-  { value: 3,     label: '★★★+' },
-  { value: 4,     label: '★★★★+' },
-  { value: 5,     label: '★★★★★' },
+  { value: null, label: t('common.all') },
+  { value: 1,    label: '★+' },
+  { value: 2,    label: '★★+' },
+  { value: 3,    label: '★★★+' },
+  { value: 4,    label: '★★★★+' },
+  { value: 5,    label: '★★★★★' },
 ]
 
 const decadeOptions = [
@@ -162,6 +201,16 @@ const sortOptions = computed(() => [
   { value: 'rating',  label: t('browse.sort_rating') },
 ])
 
+// ── Genre / sub-genre (dynamic, based on domain prop) ────────────────────
+
+const genreOptions = computed(() => getGenres(props.domain))
+
+const subGenreOptions = computed(() =>
+  props.modelValue.genre
+    ? getSubGenres(props.domain, props.modelValue.genre)
+    : []
+)
+
 // ── Filter setters ────────────────────────────────────────────────────────
 
 function setRating(value) {
@@ -172,6 +221,18 @@ function setRating(value) {
 function setDecade(value) {
   const next = props.modelValue.decade === value ? null : value
   emit('update:modelValue', { ...props.modelValue, decade: next, page: 1 })
+}
+
+function setGenre(value) {
+  // Empty string from select = "Tous" = no filter
+  const next = value || null
+  // Reset sub_genre when genre changes
+  emit('update:modelValue', { ...props.modelValue, genre: next, sub_genre: null, page: 1 })
+}
+
+function setSubGenre(value) {
+  const next = value || null
+  emit('update:modelValue', { ...props.modelValue, sub_genre: next, page: 1 })
 }
 
 function setSortBy(value) {
@@ -188,7 +249,8 @@ function toggleSortDir() {
 const hasActiveFilters = computed(() =>
   !!props.modelValue.search ||
   props.modelValue.min_rating !== null ||
-  props.modelValue.decade !== null
+  props.modelValue.decade !== null ||
+  !!props.modelValue.genre
 )
 </script>
 
@@ -245,12 +307,7 @@ const hasActiveFilters = computed(() =>
   transition: border-color $transition-fast;
 
   &::placeholder { color: $color-text-muted; }
-
-  &:focus {
-    outline: none;
-    border-color: $color-accent;
-  }
-
+  &:focus { outline: none; border-color: $color-accent; }
   &::-webkit-search-cancel-button { display: none; }
 }
 
@@ -321,7 +378,7 @@ const hasActiveFilters = computed(() =>
   }
 }
 
-// Sort controls
+// Sort + genre select controls (shared layout)
 .filter-bar__sort {
   display: flex;
   align-items: center;
@@ -362,9 +419,7 @@ const hasActiveFilters = computed(() =>
   background: $color-bg-card;
   color: $color-text-secondary;
   font-size: $text-base;
-  transition:
-    color $transition-fast,
-    border-color $transition-fast;
+  transition: color $transition-fast, border-color $transition-fast;
 
   &:hover {
     color: $color-text-primary;

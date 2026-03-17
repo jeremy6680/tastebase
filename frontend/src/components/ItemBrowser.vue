@@ -4,7 +4,7 @@
     <!-- Page header -->
     <header class="item-browser__header">
       <div class="item-browser__icon">{{ domain.icon }}</div>
-      <div>
+      <div class="item-browser__header-text">
         <h1 class="item-browser__title">{{ $t(domain.labelKey) }}</h1>
         <p class="item-browser__count">
           <template v-if="!loading && total > 0">
@@ -15,12 +15,26 @@
           </template>
         </p>
       </div>
+      <button
+        class="item-browser__add-btn"
+        :title="$t('add_item.title')"
+        :aria-label="$t('add_item.title')"
+        @click="showAddModal = true"
+      >+</button>
     </header>
+
+    <!-- Add item modal -->
+    <AddItemModal
+      v-model="showAddModal"
+      :domain-key="domainKey"
+      @created="onItemCreated"
+    />
 
     <!-- Filters -->
     <FilterBar
       v-model="filters"
       :domain-color="domain.color"
+      :domain="domainKey"
       @reset="resetFilters"
     />
 
@@ -62,6 +76,7 @@
         :selection-mode="selectionMode"
         :external-category="appliedCategories.get(item.id) ?? null"
         @select="toggleSelection"
+        @deleted="onItemDeleted"
       />
     </div>
 
@@ -112,6 +127,7 @@ import { getDomain } from '@/config/domains'
 import FilterBar from '@/components/FilterBar.vue'
 import ItemCard from '@/components/ItemCard.vue'
 import BatchCategoryBar from '@/components/BatchCategoryBar.vue'
+import AddItemModal from '@/components/AddItemModal.vue'
 
 const props = defineProps({
   /** Domain key: 'music' | 'book' | 'manga' | 'movie' | 'series' | 'anime' */
@@ -121,11 +137,25 @@ const props = defineProps({
 // Domain config
 const domain = computed(() => getDomain(props.domainKey) || getDomain('music'))
 
+// Add item modal
+const showAddModal = ref(false)
+
+/**
+ * Called when a new item is successfully created via the modal.
+ * Reloads the first page so the new item appears.
+ */
+function onItemCreated() {
+  filters.value = { ...filters.value, page: 1 }
+  // loadItems() is triggered by the watch on filters
+}
+
 // Filter + pagination state
 const filters = ref({
   search: '',
   min_rating: null,
   decade: null,
+  genre: null,
+  sub_genre: null,
   sort_by: 'title',
   sort_dir: 'asc',
   page: 1,
@@ -143,7 +173,8 @@ const totalPages = computed(() => Math.ceil(total.value / filters.value.page_siz
 const rangeStart = computed(() => (filters.value.page - 1) * filters.value.page_size + 1)
 const rangeEnd = computed(() => Math.min(filters.value.page * filters.value.page_size, total.value))
 const hasActiveFilters = computed(
-  () => !!filters.value.search || !!filters.value.min_rating || !!filters.value.decade
+  () => !!filters.value.search || !!filters.value.min_rating ||
+        !!filters.value.decade || !!filters.value.genre
 )
 
 // ── Multi-selection state ─────────────────────────────────────────────────
@@ -225,6 +256,8 @@ async function loadItems() {
       search: filters.value.search || undefined,
       min_rating: filters.value.min_rating || undefined,
       decade: filters.value.decade || undefined,
+      genre: filters.value.genre || undefined,
+      sub_genre: filters.value.sub_genre || undefined,
       sort_by: filters.value.sort_by,
       sort_dir: filters.value.sort_dir,
       page: filters.value.page,
@@ -250,11 +283,25 @@ function resetFilters() {
     search: '',
     min_rating: null,
     decade: null,
+    genre: null,
+    sub_genre: null,
     sort_by: 'title',
     sort_dir: 'asc',
     page: 1,
     page_size: 24,
   }
+}
+
+/**
+ * Remove a deleted item from the local list without a full reload.
+ * Decrements the total count so pagination stays accurate.
+ *
+ * @param {string} itemId
+ */
+function onItemDeleted(itemId) {
+  items.value = items.value.filter((i) => i.id !== itemId)
+  total.value = Math.max(0, total.value - 1)
+  selectedIds.value.delete(itemId)
 }
 
 watch(filters, loadItems, { deep: true })
@@ -272,6 +319,34 @@ watch(filters, loadItems, { deep: true })
   align-items: center;
   gap: $space-6;
   margin-bottom: $space-8;
+}
+
+.item-browser__header-text {
+  flex: 1;
+}
+
+.item-browser__add-btn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: $radius-md;
+  border: 1px solid $color-border-subtle;
+  color: $color-text-secondary;
+  font-size: $text-xl;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    color $transition-fast,
+    border-color $transition-fast,
+    background-color $transition-fast;
+
+  &:hover {
+    color: var(--domain-color);
+    border-color: var(--domain-color);
+    background-color: rgba(201, 169, 110, 0.06);
+  }
 }
 
 .item-browser__icon {
