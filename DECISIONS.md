@@ -572,6 +572,65 @@ script.
 
 ---
 
+### DEC-028 — Vue 3 + Vite as the frontend stack (DEC-028)
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** The frontend needed a framework capable of handling reactive state (filters,
+pagination, multi-select), i18n, and routing — while remaining a learning vehicle for
+modern Vue development.
+
+**Options considered:**
+
+- Vanilla JS (original plan): adequate for simple interactions, but filter/pagination/
+  i18n state management becomes unwieldy without a framework.
+- Alpine.js: lightweight, no build step, but limited Composition API ecosystem.
+- Vue 3 + Vite: full Composition API, SFC, vue-router, vue-i18n, excellent DX.
+- React / Next.js: viable but overkill for a single-user personal tool.
+
+**Decision:** Vue 3 (Composition API, SFC) + Vite, with vue-router, vue-i18n, axios,
+and SCSS (sass) for styling. No component library — custom design system via SCSS tokens.
+
+**Key conventions:**
+- `additionalData` in `vite.config.js` injects `_variables.scss` into every `<style lang="scss">` block via `import.meta.url` (ESM-compatible, avoids `__dirname`)
+- All domain metadata (color, icon, route) centralised in `config/domains.js`
+- All category taxonomy centralised in `config/categories.js`
+- API calls go through thin modules in `src/api/` (items, ratings, categories, stats)
+
+**Rationale:** Vue 3 provides the right balance of power and simplicity for this
+project size. The Composition API maps cleanly to the filter/pagination/selection
+state patterns needed. Vite's HMR makes the development loop fast.
+
+---
+
+### DEC-029 — Hard delete for manually created items
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** Users need to remove items they created manually via the UI. A soft-delete
+(deleted_at flag) was originally planned but deferred.
+
+**Options considered:**
+
+- Soft delete (`deleted_at` column): preserves history, more complex queries needed
+  everywhere to filter out deleted items.
+- Hard delete: simple, immediate, no schema change needed. Correct for user-created items.
+
+**Decision:** Hard delete via `DELETE /items/{item_id}`. Removes from `mart_unified_tastes`,
+`mart_ratings`, `mart_rating_events`, and `mart_item_categories` in dependency order.
+
+**Caveat:** dbt-managed items (source ≠ 'manual') will reappear on the next `dbt run`.
+The API does not enforce source restriction — this is documented behaviour, not a bug.
+The UI confirmation dialog makes the consequence clear to the user.
+
+**Rationale:** Hard delete is appropriate for personal-scale data where the user
+has full control. Soft delete adds query complexity everywhere with little benefit
+for a single-user application. The pipeline rebuild caveat is acceptable.
+
+---
+
 ### DEC-026 — Evidence pages guard empty datasets with {#if} instead of empty components
 
 **Date:** Mar, 2026
