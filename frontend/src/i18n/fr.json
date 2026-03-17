@@ -54,6 +54,9 @@
     "apply": "Appliquer",
     "hint": "Cliquez sur d'autres cards pour les ajouter à la sélection. Appuyez sur Échap pour annuler."
   },
+  "rating": {
+    "save_error": "Erreur lors de la sauvegarde"
+  },
   "category": {
     "genre": "Genre",
     "sub_genre": "Sous-genre",

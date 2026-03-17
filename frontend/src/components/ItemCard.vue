@@ -3,7 +3,7 @@
     class="item-card"
     :style="{ '--domain-color': domainColor }"
     :class="{
-      'item-card--rated': item.rating,
+      'item-card--rated': currentRating,
       'item-card--selected': selected,
       'item-card--selectable': selectionMode,
     }"
@@ -56,10 +56,15 @@
         <span v-if="item.year" class="item-card__year">{{ item.year }}</span>
 
         <div class="item-card__footer-right">
-          <StarRating v-if="item.rating" :rating="item.rating" />
-          <span v-else class="item-card__unrated">{{ $t('common.no_rating') }}</span>
+          <!-- Interactive star rating — always shown, interactive when not in selection mode -->
+          <StarRating
+            :rating="currentRating"
+            :interactive="!selectionMode"
+            :saving="ratingSaving"
+            @update:rating="onRatingUpdate"
+          />
 
-          <!-- Set category button — hidden in selection mode -->
+          <!-- Set category button — hidden in selection mode or when editing -->
           <button
             v-if="!category && !editingCategory && !selectionMode"
             class="item-card__tag-btn"
@@ -70,6 +75,11 @@
           </button>
         </div>
       </div>
+
+      <!-- Rating save error -->
+      <p v-if="ratingError" class="item-card__rating-error">
+        {{ $t('rating.save_error') }}
+      </p>
     </div>
   </article>
 </template>
@@ -79,31 +89,60 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { getDomain } from '@/config/domains'
 import { getGenreLabel, getSubGenreLabel } from '@/config/categories'
 import { fetchCategory, upsertCategory } from '@/api/categories'
+import { upsertRating } from '@/api/ratings'
 import StarRating from '@/components/StarRating.vue'
 import CategorySelector from '@/components/CategorySelector.vue'
 
 const props = defineProps({
-  /** TasteItemSummary object from the API */
   item: { type: Object, required: true },
-  /** Whether this card is currently selected for batch operations */
   selected: { type: Boolean, default: false },
-  /** Whether the grid is in selection mode (any card selected) */
   selectionMode: { type: Boolean, default: false },
-  /** Externally provided category (avoids redundant API calls in batch refresh) */
   externalCategory: { type: Object, default: null },
 })
 
 const emit = defineEmits(['select'])
 
-// Domain color
+// ── Domain ────────────────────────────────────────────────────────────────
 const domainColor = computed(() => getDomain(props.item.domain)?.color ?? '#c9a96e')
 
-// Category state
+// ── Rating state ──────────────────────────────────────────────────────────
+/** Current displayed rating — starts from item prop, updated on user action. */
+const currentRating = ref(props.item.rating ?? null)
+const ratingSaving = ref(false)
+const ratingError = ref(false)
+
+/**
+ * Handle a star click:
+ * 1. Update locally (StarRating already does optimistic update internally)
+ * 2. Persist via POST /items/{id}/ratings
+ * 3. On error: revert and show error message
+ */
+async function onRatingUpdate(newRating) {
+  if (ratingSaving.value) return
+
+  const previousRating = currentRating.value
+  currentRating.value = newRating  // Optimistic
+  ratingSaving.value = true
+  ratingError.value = false
+
+  try {
+    await upsertRating(props.item.id, newRating)
+  } catch (err) {
+    console.error('Failed to save rating:', err)
+    currentRating.value = previousRating  // Revert on error
+    ratingError.value = true
+    // Auto-clear error after 3s
+    setTimeout(() => { ratingError.value = false }, 3000)
+  } finally {
+    ratingSaving.value = false
+  }
+}
+
+// ── Category state ────────────────────────────────────────────────────────
 const category = ref(props.externalCategory)
 const editingCategory = ref(false)
 const categoryDraft = ref({ genre: '', sub_genre: '' })
 
-// When a batch apply happens, parent may push updated category down
 watch(() => props.externalCategory, (val) => {
   if (val) category.value = val
 })
@@ -116,12 +155,7 @@ const categoryLabel = computed(() => {
   return `${genre} · ${sub}`
 })
 
-/**
- * Handle card click:
- * - Cmd/Ctrl+click → emit 'select' for batch selection
- * - Normal click in selection mode → also emit 'select'
- * - Normal click otherwise → do nothing (child buttons handle their own clicks)
- */
+// ── Card click ────────────────────────────────────────────────────────────
 function onCardClick(event) {
   if (event.metaKey || event.ctrlKey || props.selectionMode) {
     event.preventDefault()
@@ -129,6 +163,7 @@ function onCardClick(event) {
   }
 }
 
+// ── Category load / save ──────────────────────────────────────────────────
 async function loadCategory() {
   if (props.externalCategory) return
   try {
@@ -186,28 +221,19 @@ onMounted(loadCategory)
     background-color: var(--domain-color);
   }
 
-  // Selectable mode: show pointer and subtle ring
   &--selectable {
     cursor: pointer;
-
-    &:hover {
-      border-color: var(--domain-color);
-    }
+    &:hover { border-color: var(--domain-color); }
   }
 
-  // Selected state
   &--selected {
     border-color: var(--domain-color);
     background-color: color-mix(in srgb, var(--domain-color) 8%, $color-bg-card);
     transform: translateY(-1px);
-
-    .item-card__bar {
-      background-color: var(--domain-color);
-    }
+    .item-card__bar { background-color: var(--domain-color); }
   }
 }
 
-// Checkbox overlay (top-left corner)
 .item-card__checkbox {
   position: absolute;
   top: $space-2;
@@ -222,9 +248,7 @@ onMounted(loadCategory)
   align-items: center;
   justify-content: center;
 
-  .item-card--selected & {
-    background-color: var(--domain-color);
-  }
+  .item-card--selected & { background-color: var(--domain-color); }
 }
 
 .item-card__checkbox-inner {
@@ -290,7 +314,6 @@ onMounted(loadCategory)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-
   &:hover { opacity: 1; }
 }
 
@@ -300,10 +323,7 @@ onMounted(loadCategory)
   gap: $space-2;
 }
 
-.item-card__category-actions {
-  display: flex;
-  gap: $space-2;
-}
+.item-card__category-actions { display: flex; gap: $space-2; }
 
 .item-card__category-save,
 .item-card__category-cancel {
@@ -347,17 +367,24 @@ onMounted(loadCategory)
   font-variant-numeric: tabular-nums;
 }
 
-.item-card__unrated {
-  font-size: $text-xs;
-  color: $color-text-muted;
-  font-style: italic;
-}
-
 .item-card__tag-btn {
   font-size: $text-base;
   color: $color-text-muted;
   line-height: 1;
   transition: color $transition-fast;
   &:hover { color: var(--domain-color); }
+}
+
+// Rating error
+.item-card__rating-error {
+  font-size: $text-xs;
+  color: $color-error;
+  text-align: right;
+  animation: fade-in 0.2s ease;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 </style>
