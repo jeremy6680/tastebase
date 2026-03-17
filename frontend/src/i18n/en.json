@@ -33,12 +33,20 @@
     "no_items": "No items in this domain"
   },
   "browse": {
-    "search_placeholder": "Search by title…",
+    "search_placeholder": "Search by title or creator…",
     "clear_search": "Clear search",
     "reset_filters": "Reset filters",
     "no_results": "No results for these filters",
     "previous_page": "Previous page",
-    "next_page": "Next page"
+    "next_page": "Next page",
+    "decade": "Decade",
+    "sort_by": "Sort by",
+    "sort_asc": "Ascending",
+    "sort_desc": "Descending",
+    "sort_title": "Title",
+    "sort_creator": "Creator",
+    "sort_year": "Year",
+    "sort_rating": "Rating"
   },
   "common": {
     "loading": "Loading…",

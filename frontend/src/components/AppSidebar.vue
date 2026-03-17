@@ -166,7 +166,7 @@ function toggleLocale() {
 .sidebar__logo {
   display: flex;
   align-items: center;
-  gap: $space-2;
+  gap: 0;
   color: $color-text-primary;
   text-decoration: none;
 
@@ -181,8 +181,6 @@ function toggleLocale() {
   font-weight: $font-weight-semi;
   color: $color-accent;
   line-height: 1;
-  width: 32px;
-  text-align: center;
   flex-shrink: 0;
   transition: color $transition-fast;
 }

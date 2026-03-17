@@ -33,12 +33,20 @@
     "no_items": "Aucun item dans ce domaine"
   },
   "browse": {
-    "search_placeholder": "Rechercher par titre…",
+    "search_placeholder": "Rechercher par titre ou auteur…",
     "clear_search": "Effacer la recherche",
     "reset_filters": "Réinitialiser les filtres",
     "no_results": "Aucun résultat pour ces filtres",
     "previous_page": "Page précédente",
-    "next_page": "Page suivante"
+    "next_page": "Page suivante",
+    "decade": "Décennie",
+    "sort_by": "Trier par",
+    "sort_asc": "Ordre croissant",
+    "sort_desc": "Ordre décroissant",
+    "sort_title": "Titre",
+    "sort_creator": "Auteur",
+    "sort_year": "Année",
+    "sort_rating": "Note"
   },
   "common": {
     "loading": "Chargement…",

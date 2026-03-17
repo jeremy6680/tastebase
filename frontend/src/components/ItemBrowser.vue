@@ -114,8 +114,11 @@ const domain = computed(() => getDomain(props.domainKey) || getDomain('music'))
 
 // Filter + pagination state
 const filters = ref({
-  title: '',
+  search: '',
   min_rating: null,
+  decade: null,
+  sort_by: 'title',
+  sort_dir: 'asc',
   page: 1,
   page_size: 24,
 })
@@ -130,7 +133,9 @@ const error = ref(null)
 const totalPages = computed(() => Math.ceil(total.value / filters.value.page_size))
 const rangeStart = computed(() => (filters.value.page - 1) * filters.value.page_size + 1)
 const rangeEnd = computed(() => Math.min(filters.value.page * filters.value.page_size, total.value))
-const hasActiveFilters = computed(() => !!filters.value.title || !!filters.value.min_rating)
+const hasActiveFilters = computed(
+  () => !!filters.value.search || !!filters.value.min_rating || !!filters.value.decade
+)
 
 /**
  * Fetch items from the API using current filter state.
@@ -142,8 +147,11 @@ async function loadItems() {
   try {
     const data = await fetchItems({
       domain: props.domainKey,
-      title: filters.value.title || undefined,
+      search: filters.value.search || undefined,
       min_rating: filters.value.min_rating || undefined,
+      decade: filters.value.decade || undefined,
+      sort_by: filters.value.sort_by,
+      sort_dir: filters.value.sort_dir,
       page: filters.value.page,
       page_size: filters.value.page_size,
     })
@@ -163,9 +171,17 @@ function setPage(n) {
   filters.value = { ...filters.value, page: n }
 }
 
-/** Reset all filters to defaults */
+/** Reset all filters to defaults (preserves sort settings) */
 function resetFilters() {
-  filters.value = { title: '', min_rating: null, page: 1, page_size: 24 }
+  filters.value = {
+    search: '',
+    min_rating: null,
+    decade: null,
+    sort_by: 'title',
+    sort_dir: 'asc',
+    page: 1,
+    page_size: 24,
+  }
 }
 
 // Re-fetch whenever filters change

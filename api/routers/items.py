@@ -112,24 +112,39 @@ def _row_to_item(row: tuple) -> TasteItem:
 # ---------------------------------------------------------------------------
 
 
+# Valid sort columns mapped to their SQL expressions (whitelist against injection)
+_SORT_COLUMNS: dict[str, str] = {
+    "title":   "t.title",
+    "creator": "t.creator",
+    "year":    "t.year",
+    "rating":  "r.rating",
+}
+
+
 @router.get("/", response_model=PaginatedItems)
 def list_items(
     domain: str | None = Query(None, description="Filter by domain"),
     status: str | None = Query(None, description="Filter by status"),
     min_rating: int | None = Query(None, ge=1, le=5, description="Minimum rating"),
-    title: str | None = Query(None, description="Filter by title (case-insensitive, partial match)"),
+    search: str | None = Query(None, description="Search title or creator (case-insensitive, partial match)"),
+    decade: int | None = Query(None, description="Filter by decade start year (e.g. 1990 for the 1990s)"),
+    sort_by: str = Query("title", description="Sort field: title | creator | year | rating"),
+    sort_dir: str = Query("asc", description="Sort direction: asc | desc"),
     limit: int | None = Query(None, ge=1, le=200, description="Max results (used by agent tools, overrides page_size)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: duckdb.DuckDBPyConnection = Depends(get_db),
 ) -> PaginatedItems:
-    """Return a paginated list of taste items with optional filters.
+    """Return a paginated list of taste items with optional filters and sorting.
 
     Args:
         domain: Optional domain filter (music, book, manga, movie, series, anime).
         status: Optional status filter.
         min_rating: Optional minimum rating filter (1–5).
-        title: Optional title filter (case-insensitive partial match).
+        search: Optional search query matched against title AND creator.
+        decade: Optional decade filter (e.g. 1990 matches years 1990–1999).
+        sort_by: Sort field — one of title, creator, year, rating.
+        sort_dir: Sort direction — asc or desc.
         limit: Optional max results, used by agent tools as an alias for page_size.
         page: Page number (1-indexed).
         page_size: Number of items per page (max 200).
@@ -150,12 +165,27 @@ def list_items(
     if min_rating is not None:
         conditions.append("r.rating >= ?")
         params.append(min_rating)
-    if title:
-        # Case-insensitive partial match so the agent can search "dune" and find "Dune: Part Two"
-        conditions.append("LOWER(t.title) LIKE ?")
-        params.append(f"%{title.lower()}%")
+    if search:
+        # Match against both title and creator so "Hot Water Music" finds all their albums
+        conditions.append("(LOWER(t.title) LIKE ? OR LOWER(t.creator) LIKE ?)")
+        pattern = f"%{search.lower()}%"
+        params.extend([pattern, pattern])
+    if decade is not None:
+        if decade == 1900:
+            # Special case: "Pre-1970" means any year before 1970
+            conditions.append("t.year < 1970")
+        else:
+            # Normal decade: e.g. 1990 matches years 1990–1999
+            conditions.append("t.year >= ? AND t.year < ?")
+            params.extend([decade, decade + 10])
 
     where_clause = " AND ".join(conditions)
+
+    # Resolve sort column (whitelist to prevent SQL injection)
+    sort_col = _SORT_COLUMNS.get(sort_by, "t.title")
+    direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
+    # NULLs last for all sort columns
+    order_clause = f"{sort_col} {direction} NULLS LAST"
 
     # limit param is an alias for page_size, used by agent tools that pass ?limit=N directly
     effective_page_size = limit if limit is not None else page_size
@@ -174,7 +204,7 @@ def list_items(
         FROM mart_unified_tastes t
         LEFT JOIN mart_ratings r ON t.id = r.item_id
         WHERE {where_clause}
-        ORDER BY t.title ASC
+        ORDER BY {order_clause}
         LIMIT ? OFFSET ?
     """
     rows = db.execute(items_sql, params + [effective_page_size, offset]).fetchall()
