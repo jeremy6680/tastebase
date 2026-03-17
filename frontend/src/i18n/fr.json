@@ -1,0 +1,56 @@
+{
+  "app": {
+    "name": "TasteBase",
+    "tagline": "Votre bibliothèque culturelle"
+  },
+  "nav": {
+    "home": "Accueil",
+    "music": "Musique",
+    "books": "Livres",
+    "manga": "Manga",
+    "movies": "Films",
+    "series": "Séries",
+    "anime": "Anime"
+  },
+  "home": {
+    "title": "Votre bibliothèque",
+    "subtitle": "Une vue d'ensemble de tous vos goûts",
+    "total_items": "item au total | items au total",
+    "domains": {
+      "music": "Albums",
+      "book": "Livres",
+      "manga": "Mangas",
+      "movie": "Films",
+      "series": "Séries",
+      "anime": "Animes"
+    },
+    "stats": {
+      "items": "item | items",
+      "rated": "noté | notés",
+      "unrated": "non noté | non notés"
+    },
+    "recently_added": "Ajoutés récemment",
+    "no_items": "Aucun item dans ce domaine"
+  },
+  "common": {
+    "loading": "Chargement…",
+    "error": "Une erreur est survenue",
+    "retry": "Réessayer",
+    "items": "item | items",
+    "rated": "noté | notés",
+    "rating": "Note",
+    "domain": "Domaine",
+    "source": "Source",
+    "year": "Année",
+    "genres": "Genres",
+    "status": "Statut",
+    "date_added": "Ajouté le",
+    "creator": "Créateur",
+    "no_rating": "Non noté",
+    "all": "Tous"
+  },
+  "language": {
+    "fr": "Français",
+    "en": "English"
+  }
+}

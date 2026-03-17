@@ -1,0 +1,7 @@
+// =============================================================================
+// main.scss — TasteBase global styles entry point
+// Each partial manages its own @use "variables" import.
+// =============================================================================
+
+@use "reset";
+@use "layout";

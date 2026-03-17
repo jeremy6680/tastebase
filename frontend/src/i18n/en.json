@@ -1,0 +1,56 @@
+{
+  "app": {
+    "name": "TasteBase",
+    "tagline": "Your cultural library"
+  },
+  "nav": {
+    "home": "Home",
+    "music": "Music",
+    "books": "Books",
+    "manga": "Manga",
+    "movies": "Movies",
+    "series": "Series",
+    "anime": "Anime"
+  },
+  "home": {
+    "title": "Your library",
+    "subtitle": "An overview of all your tastes",
+    "total_items": "item total | items total",
+    "domains": {
+      "music": "Albums",
+      "book": "Books",
+      "manga": "Manga",
+      "movie": "Movies",
+      "series": "Series",
+      "anime": "Anime"
+    },
+    "stats": {
+      "items": "item | items",
+      "rated": "rated",
+      "unrated": "unrated"
+    },
+    "recently_added": "Recently added",
+    "no_items": "No items in this domain"
+  },
+  "common": {
+    "loading": "Loading…",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "items": "item | items",
+    "rated": "rated",
+    "rating": "Rating",
+    "domain": "Domain",
+    "source": "Source",
+    "year": "Year",
+    "genres": "Genres",
+    "status": "Status",
+    "date_added": "Added on",
+    "creator": "Creator",
+    "no_rating": "Unrated",
+    "all": "All"
+  },
+  "language": {
+    "fr": "Français",
+    "en": "English"
+  }
+}
