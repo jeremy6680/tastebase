@@ -1,7 +1,7 @@
 <template>
-  <DomainView />
+  <ItemBrowser domain-key="movie" />
 </template>
 
 <script setup>
-import DomainView from "@/components/DomainView.vue";
+import ItemBrowser from '@/components/ItemBrowser.vue'
 </script>

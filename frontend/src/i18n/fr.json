@@ -32,6 +32,14 @@
     "recently_added": "Ajoutés récemment",
     "no_items": "Aucun item dans ce domaine"
   },
+  "browse": {
+    "search_placeholder": "Rechercher par titre…",
+    "clear_search": "Effacer la recherche",
+    "reset_filters": "Réinitialiser les filtres",
+    "no_results": "Aucun résultat pour ces filtres",
+    "previous_page": "Page précédente",
+    "next_page": "Page suivante"
+  },
   "common": {
     "loading": "Chargement…",
     "error": "Une erreur est survenue",

@@ -32,6 +32,14 @@
     "recently_added": "Recently added",
     "no_items": "No items in this domain"
   },
+  "browse": {
+    "search_placeholder": "Search by title…",
+    "clear_search": "Clear search",
+    "reset_filters": "Reset filters",
+    "no_results": "No results for these filters",
+    "previous_page": "Previous page",
+    "next_page": "Next page"
+  },
   "common": {
     "loading": "Loading…",
     "error": "Something went wrong",
