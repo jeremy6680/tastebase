@@ -48,10 +48,19 @@
     "sort_year": "Année",
     "sort_rating": "Note"
   },
+  "category": {
+    "genre": "Genre",
+    "sub_genre": "Sous-genre",
+    "pick_genre": "Choisir un genre…",
+    "pick_sub_genre": "Choisir un sous-genre…",
+    "set": "Catégoriser"
+  },
   "common": {
     "loading": "Chargement…",
     "error": "Une erreur est survenue",
     "retry": "Réessayer",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
     "items": "item | items",
     "rated": "noté | notés",
     "rating": "Note",

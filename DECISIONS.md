@@ -536,6 +536,42 @@ directly into `sources/tastebase/`, eliminating the need for the copy step.
 
 ---
 
+### DEC-027 — mart_item_categories as a satellite table outside the dbt pipeline
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** Users need to manually assign a genre/sub_genre to items after import.
+The genre taxonomy is user-defined (not derivable from source data) and must survive
+`dbt run` rebuilds of the gold layer.
+
+**Options considered:**
+
+- Add `genre` / `sub_genre` columns to `mart_unified_tastes`: simple, but these columns
+  would be overwritten on every `dbt run`.
+- Separate table `mart_item_categories` in `main_gold`, created by FastAPI at startup,
+  written only via the API: survives pipeline rebuilds, same pattern as `mart_ratings`.
+
+**Decision:** `mart_item_categories` — a satellite table in `main_gold`, created via
+`CREATE TABLE IF NOT EXISTS` in the FastAPI lifespan hook. Upserted via
+`POST /items/{item_id}/category`.
+
+**Schema:**
+```sql
+item_id    VARCHAR PRIMARY KEY
+domain     VARCHAR NOT NULL
+genre      VARCHAR NOT NULL
+sub_genre  VARCHAR
+updated_at TIMESTAMPTZ
+```
+
+**Rationale:** Mirrors the `mart_ratings` pattern (DEC-011). User-assigned metadata
+lives outside the dbt DAG so it is never clobbered by pipeline runs. The FastAPI
+lifespan hook ensures the table exists on every startup without requiring a migration
+script.
+
+---
+
 ### DEC-026 — Evidence pages guard empty datasets with {#if} instead of empty components
 
 **Date:** Mar, 2026

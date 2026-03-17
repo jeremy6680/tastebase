@@ -17,7 +17,8 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import ingestion, items, ratings, stats
+from api.routers import categories, ingestion, items, ratings, stats
+from api.routers.categories import ensure_table
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -56,6 +57,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
     else:
         logger.info("TasteBase API starting. DuckDB path: %s", db_path)
+        # Ensure satellite tables created outside the dbt pipeline exist.
+        # mart_item_categories stores user-assigned genre/sub_genre per item.
+        try:
+            import duckdb as _duckdb
+            _conn = _duckdb.connect(db_path, read_only=False)
+            _conn.execute("SET search_path = 'main_gold,main_silver,main_bronze,main'")
+            ensure_table(_conn)
+            _conn.close()
+            logger.info("mart_item_categories table ensured.")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not ensure mart_item_categories: %s", exc)
 
     yield
 
@@ -103,6 +115,7 @@ def create_app() -> FastAPI:
     # Routers
     app.include_router(items.router)
     app.include_router(ratings.router)
+    app.include_router(categories.router)
     app.include_router(stats.router)
     app.include_router(ingestion.router)
 

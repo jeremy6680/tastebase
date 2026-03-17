@@ -48,10 +48,19 @@
     "sort_year": "Year",
     "sort_rating": "Rating"
   },
+  "category": {
+    "genre": "Genre",
+    "sub_genre": "Sub-genre",
+    "pick_genre": "Pick a genre…",
+    "pick_sub_genre": "Pick a sub-genre…",
+    "set": "Categorise"
+  },
   "common": {
     "loading": "Loading…",
     "error": "Something went wrong",
     "retry": "Retry",
+    "save": "Save",
+    "cancel": "Cancel",
     "items": "item | items",
     "rated": "rated",
     "rating": "Rating",
