@@ -195,42 +195,27 @@ curl -X POST http://localhost:8000/ingest/upload \
 
 ## Running locally
 
-### FastAPI backend
+### Start everything at once
 
 ```bash
-set -a && source .env && set +a
-uvicorn api.main:app --reload
-# or with multiple workers:
-uvicorn api.main:app --workers 4
+make dev-all
 ```
 
-API: `http://localhost:8000` · Docs: `http://localhost:8000/docs`
+Lance en parallèle : FastAPI (8000) · Vue (5173) · Chainlit (8080) · Evidence (3000).
 
-### Vue 3 frontend
+### Or service by service
 
 ```bash
-cd frontend && npm run dev
+make api        # FastAPI backend      → http://localhost:8000
+make frontend   # Vue 3 frontend       → http://localhost:5173
+make agent      # Chainlit agent UI    → http://localhost:8080
+make dashboard  # Evidence.dev         → http://localhost:3000
 ```
 
-UI: `http://localhost:5173` (proxies `/api/*` to `:8000`)
+> `make dashboard` syncs `data/warehouse.duckdb` into `dashboard/sources/tastebase/`
+> before starting the dev server. Run it after any pipeline refresh.
 
-### LangGraph agent (Chainlit)
-
-```bash
-set -a && source .env && set +a
-chainlit run agent/app.py
-```
-
-Chat UI: `http://localhost:8080`
-
-### Evidence.dev dashboard
-
-```bash
-make dashboard-sync   # copies warehouse.duckdb into dashboard/sources/
-cd dashboard && npm run dev
-```
-
-Dashboard: `http://localhost:3000`
+API docs: `http://localhost:8000/docs`
 
 ---
 
