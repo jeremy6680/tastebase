@@ -46,6 +46,7 @@
                     'upload-modal__source-btn--active': selectedSource === src.key,
                     'upload-modal__source-btn--present': src.present,
                   }"
+                  :style="selectedSource === src.key ? { borderColor: 'var(--color-accent, #c9a96e)', background: 'rgba(201,169,110,0.08)' } : {}"
                   @click="selectedSource = src.key"
                 >
                   <span class="upload-modal__source-name">{{ src.label }}</span>
@@ -495,10 +496,8 @@ function formatSize(bytes) {
     background: rgba(255, 255, 255, 0.04);
   }
 
-  &--active {
-    border-color: $color-accent;
-    background: rgba($color-accent, 0.08);
-  }
+  // Active state is handled via :style binding in the template
+  // to guarantee immediate reactivity regardless of :hover state
 }
 
 .upload-modal__source-name {
