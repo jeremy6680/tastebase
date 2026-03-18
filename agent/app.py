@@ -118,14 +118,18 @@ async def on_chat_start() -> None:
     cl.user_session.set("messages", [])
     cl.user_session.set("language", "fr")  # default, updated on first message
 
-    # Welcome message
+    # Welcome message with quick access links to companion apps
     await cl.Message(
         content=(
             "👋 Bienvenue sur **TasteBase** !\n\n"
             "Je peux répondre à tes questions sur ta collection, "
             "mettre à jour tes notes, et te faire des recommandations.\n\n"
             "_Exemples : « Quels sont mes films préférés ? », "
-            "« Note Dune à 5 étoiles », « Recommande-moi des livres de SF »_"
+            "« Note Dune à 5 étoiles », « Recommande-moi des livres de SF »_\n\n"
+            "---\n\n"
+            "🔗 **Accès rapide :** "
+            "[📊 Dashboard](http://localhost:3000) · "
+            "[📚 Bibliothèque](http://localhost:5173)"
         )
     ).send()
 
