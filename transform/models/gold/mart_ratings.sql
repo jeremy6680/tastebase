@@ -1,24 +1,33 @@
 -- mart_ratings.sql
 -- Gold mart: current rating per item, with source tracking.
--- One row per item. Source = 'imported' for all ratings at this stage.
--- User ratings set via the FastAPI /ratings endpoint will be merged
--- in Phase 6 by updating this table directly (outside dbt).
--- Rebuilding with dbt run will restore imported ratings as the baseline.
+-- One row per item.
+--
+-- Materialization: incremental (DEC-030)
+--   - On first run: inserts all rated items from mart_unified_tastes.
+--   - On subsequent runs: only inserts items whose item_id does NOT already
+--     exist in mart_ratings. This preserves user ratings (source='user')
+--     set via the FastAPI /ratings endpoint across pipeline rebuilds.
+--   - User ratings are NEVER overwritten by dbt.
+--   - unique_key = 'item_id': if the same item_id arrives again from the
+--     pipeline, it is skipped (do_nothing strategy).
+--
+-- See DECISIONS.md DEC-030.
 
 {{
     config(
-        materialized='table',
-        schema='gold'
+        materialized='incremental',
+        schema='gold',
+        unique_key='item_id',
+        incremental_strategy='append',
+        on_schema_change='ignore'
     )
 }}
 
 SELECT
-    -- Stable rating ID: deterministic hash of item + source
     md5(id || '|imported') AS id,
     id                     AS item_id,
     rating,
-    'imported'             AS source,   -- 'imported' | 'user' (user set via API)
-    -- Use date_consumed as rated_at when available, else date_added, else today
+    'imported'             AS source,
     COALESCE(
         date_consumed,
         date_added,
@@ -28,5 +37,10 @@ SELECT
 
 FROM {{ ref('mart_unified_tastes') }}
 
--- Only expose items that have an actual rating
 WHERE rating IS NOT NULL
+
+{% if is_incremental() %}
+  -- On incremental runs: only insert items not already in mart_ratings.
+  -- This is what protects user ratings from being overwritten.
+  AND id NOT IN (SELECT item_id FROM {{ this }})
+{% endif %}
