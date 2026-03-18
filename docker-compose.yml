@@ -1,29 +1,67 @@
 # =============================================================================
 # TasteBase — Docker Compose
-# Services: api (FastAPI), agent (Chainlit), dashboard (Evidence.dev)
+#
+# Services:
+#   api        FastAPI backend (port 8000) — the only DuckDB writer
+#   agent      Chainlit + LangGraph UI (port 8080)
+#   dashboard  Evidence.dev analytics dashboard (port 3000)
+#
+# Volumes:
+#   duckdb_data  Named volume for warehouse.duckdb — shared across services
+#
+# Quick start:
+#   cp .env.example .env   # fill in your API keys
+#   docker compose up --build
 # =============================================================================
 
 services:
   # ---------------------------------------------------------------------------
-  # FastAPI backend — the only service that writes to DuckDB
+  # api — FastAPI backend
+  # The only service allowed to write to DuckDB (DEC-011).
+  # Handles CSV upload, ingestion pipeline, and all CRUD operations.
   # ---------------------------------------------------------------------------
   api:
     build:
       context: .
       dockerfile: Dockerfile
       target: runtime
-    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    command: >
+      uvicorn api.main:app
+      --host 0.0.0.0
+      --port 8000
+      --workers 4
     ports:
       - "8000:8000"
     volumes:
-      - duckdb_data:/app/data # Persist DuckDB file across restarts
-      - ./data/raw:/app/data/raw # Mount user CSV exports
+      # Named volume: warehouse.duckdb persists across container restarts
+      - duckdb_data:/app/data
+      # Bind mount: user drops CSV exports here on the host
+      - ./data/raw:/app/data/raw
+      # Bind mount: dbt transform project (needed for `dbt run` via subprocess)
+      - ./transform:/app/transform
+    environment:
+      # DUCKDB_PATH must be absolute inside the container (DEC-017)
+      DUCKDB_PATH: /app/data/warehouse.duckdb
+      APP_ENV: production
     env_file:
       - .env
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
-  # Chainlit agent UI — queries gold layer via FastAPI
+  # agent — Chainlit + LangGraph conversational UI
+  # Queries gold layer via FastAPI (DEC-011) — never touches DuckDB directly.
   # ---------------------------------------------------------------------------
   agent:
     build:
@@ -33,30 +71,36 @@ services:
     command: chainlit run agent/app.py --host 0.0.0.0 --port 8080
     ports:
       - "8080:8080"
-    volumes:
-      - duckdb_data:/app/data # Read-only access to DuckDB
+    environment:
+      # Agent calls FastAPI via internal Docker network — not localhost
+      API_BASE_URL: http://api:8000
+      APP_ENV: production
     env_file:
       - .env
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
-  # Evidence.dev dashboard — reads DuckDB gold layer directly (read-only)
+  # dashboard — Evidence.dev analytics dashboard
+  # Reads DuckDB gold layer directly (read-only).
+  # The duckdb_data volume is mounted at sources/tastebase/ to satisfy
+  # Evidence's requirement for a physical .duckdb file (DEC-025).
   # ---------------------------------------------------------------------------
   dashboard:
-    image: node:20-slim
-    working_dir: /app/dashboard
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 3000"
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
     ports:
       - "3000:3000"
     volumes:
-      - duckdb_data:/app/data # Read-only access to DuckDB
-      - ./dashboard:/app/dashboard
-    env_file:
-      - .env
+      # Mount the warehouse directly into the Evidence source directory.
+      # This eliminates the need for `make dashboard-sync` in Docker (DEC-025).
+      - duckdb_data:/app/dashboard/sources/tastebase
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
 # =============================================================================

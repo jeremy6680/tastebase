@@ -1,0 +1,38 @@
+# =============================================================================
+# TasteBase — Dockerfile.dashboard
+#
+# Evidence.dev static dashboard service.
+# Built on Node 20 LTS (slim). Serves the Evidence dev server in development
+# and a static build via `npm run build` + `npm run preview` in production.
+#
+# DuckDB constraint (DEC-025):
+#   The .duckdb file must be physically present in sources/tastebase/.
+#   In docker-compose, the duckdb_data volume is mounted directly at
+#   /app/dashboard/sources/tastebase/ — no copy step required.
+#
+# Required environment variables at runtime:
+#   (none — Evidence reads DuckDB directly from the mounted volume)
+# =============================================================================
+
+FROM node:20-slim AS base
+
+WORKDIR /app/dashboard
+
+# Copy package manifests first to leverage Docker layer caching.
+# npm install only re-runs when package.json or package-lock.json change.
+COPY dashboard/package*.json ./
+
+RUN npm ci --prefer-offline
+
+# Copy Evidence pages and source configuration
+COPY dashboard/ .
+
+# Expose Evidence dev server port
+EXPOSE 3000
+
+# Health check: polls the Evidence dev server root
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:3000', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+
+# Start the Evidence dev server, bound to all interfaces
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3000"]
