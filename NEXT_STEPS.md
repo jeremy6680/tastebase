@@ -207,6 +207,7 @@
 - [x] Upload CSV — trigger ingestion from the UI
 
 **Known issues / notes:**
+
 - Delete is a hard delete — dbt-managed items reappear on next `dbt run` (by design)
 - Genre filter uses INNER JOIN on `mart_item_categories` — only categorised items appear
 - Upload runs the full pipeline synchronously; other API requests are blocked during ingestion. Run uvicorn with `--workers 4` to mitigate. Background task queue is a Phase 11+ improvement.
@@ -218,10 +219,13 @@
 
 ## Phase 11 — Docker + deployment
 
-- [ ] Finalize `Dockerfile` (multi-stage build)
-- [ ] Finalize `docker-compose.yml` (api, agent, dashboard services)
-- [ ] Write `docs/deployment.md` (Coolify + Hetzner setup guide)
-- [ ] Configure DuckDB volume persistence
+- [x] Finalize `Dockerfile` (multi-stage build, Python 3.12, healthcheck)
+- [x] Create `Dockerfile.dashboard` (Node 20, Evidence.dev)
+- [x] Finalize `docker-compose.yml` (api, agent, dashboard — healthcheck, volumes, internal network)
+- [x] Write `docs/deployment.md` (Coolify + Hetzner setup guide)
+- [x] Configure DuckDB volume persistence
+- [x] Create `.dockerignore`
+- [x] Fix `.gitignore` (remove erroneous `*.dockerignore` exclusion)
 
 **Branch:** `feat/docker-deployment`
 
