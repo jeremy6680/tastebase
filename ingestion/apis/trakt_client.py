@@ -96,6 +96,7 @@ class TraktClient(BaseApiClient):
                 "redirect_uri": "urn:ietf:wg:oauth:2.0:oob",
                 "grant_type": "refresh_token",
             },
+            timeout=30,
         )
         response.raise_for_status()
         data = response.json()
@@ -136,12 +137,12 @@ class TraktClient(BaseApiClient):
             httpx.HTTPStatusError: If the request fails after token refresh.
         """
         url = f"{self.base_url}{path}"
-        response = httpx.get(url, headers=self._auth_headers(), params=params)
+        response = httpx.get(url, headers=self._auth_headers(), params=params, timeout=30)
 
         if response.status_code == 401:
             logger.warning("Trakt token expired, refreshing...")
             self._refresh_access_token()
-            response = httpx.get(url, headers=self._auth_headers(), params=params)
+            response = httpx.get(url, headers=self._auth_headers(), params=params, timeout=30)
 
         response.raise_for_status()
         return response.json()
@@ -161,12 +162,12 @@ class TraktClient(BaseApiClient):
         while True:
             url = f"{self.base_url}{path}"
             params = {"page": page, "limit": self._PAGE_LIMIT}
-            response = httpx.get(url, headers=self._auth_headers(), params=params)
+            response = httpx.get(url, headers=self._auth_headers(), params=params, timeout=30)
 
             if response.status_code == 401:
                 logger.warning("Trakt token expired during pagination, refreshing...")
                 self._refresh_access_token()
-                response = httpx.get(url, headers=self._auth_headers(), params=params)
+                response = httpx.get(url, headers=self._auth_headers(), params=params, timeout=30)
 
             response.raise_for_status()
             items = response.json()

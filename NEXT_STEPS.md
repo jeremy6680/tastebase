@@ -172,7 +172,7 @@
 
 - Music and series have 0 rated items → top rated sections display a Note component instead of empty tables
 - Anime has 0 items → all sections guarded with `{#if}` (DEC-019)
-- `warehouse.duckdb` must be manually synced via `make dashboard-sync` before each Evidence session (Evidence requires the file physically present in `sources/tastebase/`)
+- `warehouse.duckdb` must be manually synced via `make dashboard-sync` before each Evidence session
 
 **Branch:** `feat/evidence-dashboard`
 
@@ -180,10 +180,37 @@
 
 ## Phase 10 — Frontend UI
 
-- [ ] Implement `frontend/index.html` (responsive layout, domain navigation)
-- [ ] Implement JS: browse, filter, sort items; star-rating widget; CSV upload
-- [ ] Implement i18n: `fr.json`, `en.json`
-- [ ] Connect to FastAPI backend
+- [x] Scaffold Vite + Vue 3 + Vue Router + vue-i18n + Axios (DEC-028)
+- [x] SCSS design system: variables, reset, layout utilities
+- [x] `AppSidebar`: domain navigation, collapse state, FR/EN language toggle
+- [x] `HomeView`: domain cards grid with counts from `/stats/counts`
+- [x] `ItemBrowser`: paginated grid, filter state, domain-aware
+- [x] `FilterBar`: search (title + creator), rating chips, decade chips, genre/sub-genre selects, sort
+- [x] `ItemCard`: title, creator, year, interactive star rating, category badge
+- [x] `StarRating`: read-only + interactive mode, hover preview, saving spinner
+- [x] `CategorySelector`: chained genre/sub-genre selects per domain
+- [x] `BatchCategoryBar`: Cmd/Ctrl+click multi-select, batch category apply
+- [x] `AddItemModal`: manual item creation (title, creator, year, rating, status, category)
+- [x] `api/items.js`: fetchItems, fetchItem, createItem, deleteItem
+- [x] `api/ratings.js`: fetchRating, upsertRating
+- [x] `api/categories.js`: fetchCategory, upsertCategory, batchUpsertCategories
+- [x] `config/categories.js`: full genre/sub-genre taxonomy (book, music, movie, series, anime, manga)
+- [x] Item deletion: button on hover, confirmation dialog, optimistic card removal
+- [x] i18n: FR (default) + EN, all UI strings covered
+- [x] FastAPI extensions for Phase 10 features:
+  - `routers/categories.py` (GET/POST per-item, POST /categories/batch)
+  - `schemas/category.py` (CategoryUpsert, CategoryBatch, Category)
+  - `DELETE /items/{item_id}` (hard delete with satellite table cleanup)
+  - `GET /items` extended: genre/sub_genre filter, search by creator, sort params
+  - `POST /items` fixed: genres as VARCHAR, removed non-existent columns
+  - `get_db` search_path fixed to resolve `main_gold,main_silver,main_bronze,main`
+- [x] Upload CSV — trigger ingestion from the UI
+
+**Known issues / notes:**
+- Delete is a hard delete — dbt-managed items reappear on next `dbt run` (by design)
+- Genre filter uses INNER JOIN on `mart_item_categories` — only categorised items appear
+- Upload runs the full pipeline synchronously; other API requests are blocked during ingestion. Run uvicorn with `--workers 4` to mitigate. Background task queue is a Phase 11+ improvement.
+- Spotify is rate-limited (~23h window); ingestion skips Spotify gracefully with a WARNING log
 
 **Branch:** `feat/frontend-ui`
 
@@ -214,6 +241,9 @@
 
 ## Backlog / future improvements
 
+- [ ] Upload CSV from the frontend UI (triggers `POST /ingest`)
+- [ ] Fix duplicate items in pipeline (e.g. same movie from MovieBuddy + Letterboxd with different metadata — improve silver deduplication)
+- [ ] Book categories: `genre`/`sub_genre` filter in browse is already in place; consider auto-detection from Goodreads shelves
 - [ ] MyAnimeList API integration
 - [ ] OpenLibrary / Google Books cover enrichment
 - [ ] Smoke test Spotify `_fetch_saved_albums` (token rate-limited during Phase 3 — retest when limit lifts)

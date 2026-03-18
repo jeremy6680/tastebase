@@ -113,6 +113,80 @@
 
 ---
 
+### DEC-030 — mart_ratings switched to incremental materialization
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** `mart_ratings` was materialized as a `table`, meaning `dbt run` rebuilt
+it from scratch on every pipeline run. User ratings set via the API (`source='user'`)
+were silently overwritten if the source CSV did not contain a rating for that item.
+
+**Options considered:**
+
+- Keep `table` materialization + post-hook UPSERT: fragile — dbt's `CREATE OR REPLACE`
+  runs before any hook, so the table is already empty when the hook fires.
+- Satellite table managed entirely outside dbt (like `mart_item_categories`): removes
+  dbt visibility and testing over the ratings model.
+- `incremental` materialization with `AND id NOT IN (SELECT item_id FROM {{ this }})`:
+  inserts only new items on subsequent runs; existing rows (including user ratings) are
+  never touched by dbt.
+
+**Decision:** Switch `mart_ratings` to `incremental` materialization. On first run the
+full set of rated items is inserted. On subsequent runs only items whose `item_id` is
+not yet present in the table are inserted. User ratings (`source='user'`) survive all
+future pipeline rebuilds.
+
+**Rationale:** Preserves user data across pipeline rebuilds without removing the model
+from dbt's DAG. The incremental filter is a single `NOT IN` subquery — simple, auditable,
+and consistent with how dbt incremental models are commonly used.
+
+---
+
+### DEC-031 — CSV upload saves to canonical filename; pipeline always runs in full
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** The `POST /ingest/upload` endpoint receives a CSV file for a named source
+(e.g. `bookbuddy`) and must trigger the full ingestion pipeline. The file's original
+name from the user's device is irrelevant to the pipeline.
+
+**Decision:** The uploaded file is saved under the canonical filename for its source
+(e.g. `data/raw/bookbuddy.csv`), overwriting any previous version. After saving, the
+full pipeline runs: `run_ingestion.py` (all sources) + `dbt run` (all models).
+
+**Rationale:** Running the full pipeline rather than a partial one avoids partial state
+where bronze tables are out of sync with silver/gold. The canonical filename requirement
+(DEC-014) is enforced server-side — the user does not need to rename files before upload.
+
+---
+
+### DEC-032 — Spotify httpx calls capped at 30s timeout; Retry-After > 60s skips the client
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** During ingestion triggered by `POST /ingest/upload`, the Spotify client
+blocked the entire uvicorn worker indefinitely because:
+1. `httpx` calls had no timeout configured.
+2. The `Retry-After` header from a 429 response was 83,000+ seconds (~23 hours),
+   and the code called `time.sleep(retry_after)` unconditionally.
+
+**Decision:**
+- Add `timeout=30` to all `httpx.get` and `httpx.post` calls in `SpotifyClient` and
+  `TraktClient`.
+- In `SpotifyClient._get()`: if `Retry-After > 60`, raise `HTTPStatusError` immediately
+  instead of sleeping. The per-endpoint `try/except` in `_parse()` catches this and logs
+  a warning, allowing the other endpoints to be skipped gracefully.
+
+**Rationale:** A 30s timeout is sufficient for normal API latency. Sleeping 23 hours
+inside a synchronous web server worker is unacceptable. The 60s cap means short rate
+limit windows are still retried, while long windows (Spotify's extended rate limiting)
+fail fast and log a clear message.
+
+---
+
 ## Tech stack
 
 ### DEC-007 — dbt-duckdb over raw SQL scripts
@@ -248,12 +322,12 @@ must use:
 | MovieBuddy | `data/raw/moviebuddy.csv` |
 | Letterboxd | `data/raw/letterboxd.csv` |
 
-Renaming instructions are documented in `docs/data-sources.md`.
+The `POST /ingest/upload` endpoint enforces this automatically — the uploaded file
+is always saved under the canonical name regardless of its original filename.
 
 **Rationale:** A fixed name per source keeps loader code simple (no
 glob patterns, no dynamic file discovery) and makes behavior
-predictable. The renaming constraint is lightweight and clearly
-documented.
+predictable.
 
 ---
 
@@ -553,3 +627,98 @@ syntax to guard any component that depends on a query that may return 0 rows.
 **Rationale:** An explicit empty state with a descriptive `<Note>` is better UX
 than a crashed component. The guard also makes the dashboard forward-compatible:
 sections will populate automatically once data is available, without any page edits.
+
+---
+
+### DEC-027 — mart_item_categories as a satellite table outside the dbt pipeline
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** Users need to manually assign a genre/sub_genre to items after import.
+The genre taxonomy is user-defined (not derivable from source data) and must survive
+`dbt run` rebuilds of the gold layer.
+
+**Options considered:**
+
+- Add `genre` / `sub_genre` columns to `mart_unified_tastes`: simple, but these columns
+  would be overwritten on every `dbt run`.
+- Separate table `mart_item_categories` in `main_gold`, created by FastAPI at startup,
+  written only via the API: survives pipeline rebuilds, same pattern as `mart_ratings`.
+
+**Decision:** `mart_item_categories` — a satellite table in `main_gold`, created via
+`CREATE TABLE IF NOT EXISTS` in the FastAPI lifespan hook. Upserted via
+`POST /items/{item_id}/category`.
+
+**Schema:**
+```sql
+item_id    VARCHAR PRIMARY KEY
+domain     VARCHAR NOT NULL
+genre      VARCHAR NOT NULL
+sub_genre  VARCHAR
+updated_at TIMESTAMPTZ
+```
+
+**Rationale:** Mirrors the `mart_ratings` pattern (DEC-011). User-assigned metadata
+lives outside the dbt DAG so it is never clobbered by pipeline runs. The FastAPI
+lifespan hook ensures the table exists on every startup without requiring a migration
+script.
+
+---
+
+### DEC-028 — Vue 3 + Vite as the frontend stack
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** The frontend needed a framework capable of handling reactive state (filters,
+pagination, multi-select), i18n, and routing — while remaining a learning vehicle for
+modern Vue development.
+
+**Options considered:**
+
+- Vanilla JS (original plan): adequate for simple interactions, but filter/pagination/
+  i18n state management becomes unwieldy without a framework.
+- Alpine.js: lightweight, no build step, but limited Composition API ecosystem.
+- Vue 3 + Vite: full Composition API, SFC, vue-router, vue-i18n, excellent DX.
+- React / Next.js: viable but overkill for a single-user personal tool.
+
+**Decision:** Vue 3 (Composition API, SFC) + Vite, with vue-router, vue-i18n, axios,
+and SCSS (sass) for styling. No component library — custom design system via SCSS tokens.
+
+**Key conventions:**
+- `additionalData` in `vite.config.js` injects `_variables.scss` into every `<style lang="scss">` block via `import.meta.url` (ESM-compatible, avoids `__dirname`)
+- All domain metadata (color, icon, route) centralised in `config/domains.js`
+- All category taxonomy centralised in `config/categories.js`
+- API calls go through thin modules in `src/api/` (items, ratings, categories, stats, ingestion)
+
+**Rationale:** Vue 3 provides the right balance of power and simplicity for this
+project size. The Composition API maps cleanly to the filter/pagination/selection
+state patterns needed. Vite's HMR makes the development loop fast.
+
+---
+
+### DEC-029 — Hard delete for manually created items
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** Users need to remove items they created manually via the UI. A soft-delete
+(deleted_at flag) was originally planned but deferred.
+
+**Options considered:**
+
+- Soft delete (`deleted_at` column): preserves history, more complex queries needed
+  everywhere to filter out deleted items.
+- Hard delete: simple, immediate, no schema change needed. Correct for user-created items.
+
+**Decision:** Hard delete via `DELETE /items/{item_id}`. Removes from `mart_unified_tastes`,
+`mart_ratings`, `mart_rating_events`, and `mart_item_categories` in dependency order.
+
+**Caveat:** dbt-managed items (source ≠ 'manual') will reappear on the next `dbt run`.
+The API does not enforce source restriction — this is documented behaviour, not a bug.
+The UI confirmation dialog makes the consequence clear to the user.
+
+**Rationale:** Hard delete is appropriate for personal-scale data where the user
+has full control. Soft delete adds query complexity everywhere with little benefit
+for a single-user application. The pipeline rebuild caveat is acceptable.

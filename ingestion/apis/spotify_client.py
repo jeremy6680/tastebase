@@ -99,6 +99,7 @@ class SpotifyClient(BaseApiClient):
                 "Authorization": f"Basic {creds}",
                 "Content-Type": "application/x-www-form-urlencoded",
             },
+            timeout=30,
         )
         response.raise_for_status()
         self.access_token = response.json()["access_token"]
@@ -134,17 +135,27 @@ class SpotifyClient(BaseApiClient):
         max_retries = 3
 
         for attempt in range(max_retries):
-            response = httpx.get(url, headers=self._auth_headers(), params=params)
+            response = httpx.get(url, headers=self._auth_headers(), params=params, timeout=30)
 
             # Token expired — refresh and retry immediately
             if response.status_code == 401:
                 logger.warning("Spotify token expired, refreshing...")
                 self._refresh_access_token()
-                response = httpx.get(url, headers=self._auth_headers(), params=params)
+                response = httpx.get(url, headers=self._auth_headers(), params=params, timeout=30)
 
-            # Rate limited — wait and retry
+            # Rate limited — wait and retry, but cap the wait to avoid blocking forever
             if response.status_code == 429:
                 retry_after = int(response.headers.get("Retry-After", 5))
+                if retry_after > 60:
+                    logger.warning(
+                        f"Spotify rate limit retry_after={retry_after}s exceeds 60s cap "
+                        f"— skipping Spotify ingestion until rate limit clears."
+                    )
+                    raise httpx.HTTPStatusError(
+                        f"Rate limited for {retry_after}s — skipped",
+                        request=response.request,
+                        response=response,
+                    )
                 logger.warning(
                     f"Spotify rate limit hit — waiting {retry_after}s "
                     f"(attempt {attempt + 1}/{max_retries})"

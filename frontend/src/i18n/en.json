@@ -1,0 +1,132 @@
+{
+  "app": {
+    "name": "TasteBase",
+    "tagline": "Your cultural library"
+  },
+  "nav": {
+    "home": "Home",
+    "music": "Music",
+    "books": "Books",
+    "manga": "Manga",
+    "movies": "Movies",
+    "series": "Series",
+    "anime": "Anime"
+  },
+  "home": {
+    "title": "Your library",
+    "subtitle": "An overview of all your tastes",
+    "total_items": "item total | items total",
+    "domains": {
+      "music": "Albums",
+      "book": "Books",
+      "manga": "Manga",
+      "movie": "Movies",
+      "series": "Series",
+      "anime": "Anime"
+    },
+    "stats": {
+      "items": "item | items",
+      "rated": "rated",
+      "unrated": "unrated"
+    },
+    "recently_added": "Recently added",
+    "no_items": "No items in this domain"
+  },
+  "browse": {
+    "search_placeholder": "Search by title or creator…",
+    "clear_search": "Clear search",
+    "reset_filters": "Reset filters",
+    "no_results": "No results for these filters",
+    "previous_page": "Previous page",
+    "next_page": "Next page",
+    "decade": "Decade",
+    "sort_by": "Sort by",
+    "sort_asc": "Ascending",
+    "sort_desc": "Descending",
+    "sort_title": "Title",
+    "sort_creator": "Creator",
+    "sort_year": "Year",
+    "sort_rating": "Rating"
+  },
+  "batch": {
+    "selected": "{n} selected",
+    "clear": "Clear selection",
+    "apply": "Apply",
+    "hint": "Click other cards to add them to the selection. Press Escape to cancel."
+  },
+  "add_item": {
+    "title": "Add item",
+    "field_title": "Title",
+    "field_creator": "Author / Artist / Director",
+    "field_year": "Year",
+    "field_rating": "Rating",
+    "field_status": "Status",
+    "placeholder_title": "Title of the work",
+    "placeholder_artist": "Artist name",
+    "placeholder_author": "Author name",
+    "placeholder_director": "Director name",
+    "placeholder_creator": "Creator name",
+    "placeholder_studio": "Studio name",
+    "status_none": "\u2014 No status",
+    "status_owned": "Owned",
+    "status_prev_owned": "Previously owned",
+    "status_read": "Read",
+    "status_unread": "Unread",
+    "status_watched": "Watched",
+    "status_wishlist": "Wishlist",
+    "clear_rating": "Clear rating",
+    "submit": "Add",
+    "error_title_required": "Title is required",
+    "error_year_range": "Year must be between 1800 and 2100"
+  },
+  "upload": {
+    "title": "Import CSV",
+    "source_label": "Source",
+    "file_label": "CSV file",
+    "drop_hint": "Drop a CSV file here or click to browse",
+    "select_source_first": "Select a source first",
+    "file_present": "File already present in data/raw/",
+    "submit": "Import",
+    "uploading": "Importing…",
+    "success": "{filename} imported successfully",
+    "partial_failure": "Import finished with errors (see logs)",
+    "show_logs": "Show pipeline logs",
+    "upload_another": "Import another file"
+  },
+  "rating": {
+    "save_error": "Failed to save rating"
+  },
+  "category": {
+    "genre": "Genre",
+    "sub_genre": "Sub-genre",
+    "pick_genre": "Pick a genre…",
+    "pick_sub_genre": "Pick a sub-genre…",
+    "set": "Categorise"
+  },
+  "common": {
+    "loading": "Loading…",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "save": "Save",
+    "cancel": "Cancel",
+    "done": "Close",
+    "items": "item | items",
+    "rated": "rated",
+    "rating": "Rating",
+    "domain": "Domain",
+    "source": "Source",
+    "year": "Year",
+    "genres": "Genres",
+    "status": "Status",
+    "date_added": "Added on",
+    "creator": "Creator",
+    "no_rating": "Unrated",
+    "all": "All",
+    "optional": "optional",
+    "delete": "Delete"
+  },
+  "language": {
+    "fr": "Français",
+    "en": "English"
+  }
+}

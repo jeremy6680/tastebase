@@ -1,0 +1,132 @@
+{
+  "app": {
+    "name": "TasteBase",
+    "tagline": "Votre bibliothèque culturelle"
+  },
+  "nav": {
+    "home": "Accueil",
+    "music": "Musique",
+    "books": "Livres",
+    "manga": "Manga",
+    "movies": "Films",
+    "series": "Séries",
+    "anime": "Anime"
+  },
+  "home": {
+    "title": "Votre bibliothèque",
+    "subtitle": "Une vue d'ensemble de tous vos goûts",
+    "total_items": "item au total | items au total",
+    "domains": {
+      "music": "Albums",
+      "book": "Livres",
+      "manga": "Mangas",
+      "movie": "Films",
+      "series": "Séries",
+      "anime": "Animes"
+    },
+    "stats": {
+      "items": "item | items",
+      "rated": "noté | notés",
+      "unrated": "non noté | non notés"
+    },
+    "recently_added": "Ajoutés récemment",
+    "no_items": "Aucun item dans ce domaine"
+  },
+  "browse": {
+    "search_placeholder": "Rechercher par titre ou auteur…",
+    "clear_search": "Effacer la recherche",
+    "reset_filters": "Réinitialiser les filtres",
+    "no_results": "Aucun résultat pour ces filtres",
+    "previous_page": "Page précédente",
+    "next_page": "Page suivante",
+    "decade": "Décennie",
+    "sort_by": "Trier par",
+    "sort_asc": "Ordre croissant",
+    "sort_desc": "Ordre décroissant",
+    "sort_title": "Titre",
+    "sort_creator": "Auteur",
+    "sort_year": "Année",
+    "sort_rating": "Note"
+  },
+  "batch": {
+    "selected": "{n} sélectionné | {n} sélectionnés",
+    "clear": "Tout désélectionner",
+    "apply": "Appliquer",
+    "hint": "Cliquez sur d'autres cards pour les ajouter à la sélection. Appuyez sur Échap pour annuler."
+  },
+  "add_item": {
+    "title": "Ajouter un item",
+    "field_title": "Titre",
+    "field_creator": "Auteur / Artiste / Réalisateur",
+    "field_year": "Année",
+    "field_rating": "Note",
+    "field_status": "Statut",
+    "placeholder_title": "Titre de l'œuvre",
+    "placeholder_artist": "Nom de l'artiste",
+    "placeholder_author": "Nom de l'auteur",
+    "placeholder_director": "Nom du réalisateur",
+    "placeholder_creator": "Nom du créateur",
+    "placeholder_studio": "Nom du studio",
+    "status_none": "— Aucun statut",
+    "status_owned": "Possédé",
+    "status_prev_owned": "Anciennement possédé",
+    "status_read": "Lu",
+    "status_unread": "Non lu",
+    "status_watched": "Vu",
+    "status_wishlist": "Liste de souhaits",
+    "clear_rating": "Effacer la note",
+    "submit": "Ajouter",
+    "error_title_required": "Le titre est obligatoire",
+    "error_year_range": "L'année doit être entre 1800 et 2100"
+  },
+  "upload": {
+    "title": "Importer un CSV",
+    "source_label": "Source",
+    "file_label": "Fichier CSV",
+    "drop_hint": "Glissez-déposez un fichier CSV ou cliquez pour choisir",
+    "select_source_first": "Sélectionnez d'abord une source",
+    "file_present": "Fichier déjà présent dans data/raw/",
+    "submit": "Importer",
+    "uploading": "Import en cours…",
+    "success": "{filename} importé avec succès",
+    "partial_failure": "Import terminé avec des erreurs (voir les logs)",
+    "show_logs": "Afficher les logs du pipeline",
+    "upload_another": "Importer un autre fichier"
+  },
+  "rating": {
+    "save_error": "Erreur lors de la sauvegarde"
+  },
+  "category": {
+    "genre": "Genre",
+    "sub_genre": "Sous-genre",
+    "pick_genre": "Choisir un genre…",
+    "pick_sub_genre": "Choisir un sous-genre…",
+    "set": "Catégoriser"
+  },
+  "common": {
+    "loading": "Chargement…",
+    "error": "Une erreur est survenue",
+    "retry": "Réessayer",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "done": "Fermer",
+    "items": "item | items",
+    "rated": "noté | notés",
+    "rating": "Note",
+    "domain": "Domaine",
+    "source": "Source",
+    "year": "Année",
+    "genres": "Genres",
+    "status": "Statut",
+    "date_added": "Ajouté le",
+    "creator": "Créateur",
+    "no_rating": "Non noté",
+    "all": "Tous",
+    "optional": "facultatif",
+    "delete": "Supprimer"
+  },
+  "language": {
+    "fr": "Français",
+    "en": "English"
+  }
+}
