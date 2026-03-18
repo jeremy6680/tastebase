@@ -10,7 +10,9 @@
     "manga": "Manga",
     "movies": "Films",
     "series": "Séries",
-    "anime": "Anime"
+    "anime": "Anime",
+    "dashboard": "Dashboard",
+    "agent": "Agent IA"
   },
   "home": {
     "title": "Votre bibliothèque",

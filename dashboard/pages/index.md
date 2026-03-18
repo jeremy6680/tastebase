@@ -2,9 +2,20 @@
 title: TasteBase — Overview
 ---
 
+<script>
+  // Cross-app navigation links — configured via dashboard/.env
+  // PUBLIC_* variables are injected at build time by SvelteKit/Evidence.
+  // Fallback values ensure the links work even without a .env file.
+  import { env } from '$env/dynamic/public';
+  const libraryUrl = env.PUBLIC_LIBRARY_URL ?? 'http://localhost:5173';
+  const agentUrl = env.PUBLIC_AGENT_URL ?? 'http://localhost:8080';
+</script>
+
 # TasteBase
 
 My personal cultural taste warehouse — {total_items[0].total} items across {domain_count[0].count} domains.
+
+🔗 **Quick access:** <a href={libraryUrl} target="_blank" rel="noopener noreferrer">📚 Library</a> · <a href={agentUrl} target="_blank" rel="noopener noreferrer">🤖 Agent</a>
 
 ```sql total_items
 select sum(value_int) as total
