@@ -264,6 +264,23 @@
 
 ---
 
+## Phase 14 — Cross-app navigation & developer UX
+
+- [x] Add quick access links in Chainlit welcome message (dashboard + library) via `TASTEBASE_*` env vars
+- [x] Add external links to dashboard and agent in Vue sidebar footer via `VITE_*` env vars
+- [x] Add cross-app links in Evidence index page via `PUBLIC_*` env vars (SvelteKit)
+- [x] Add `frontend/.env.example`, `dashboard/.env.example` with URL variables
+- [x] Update `.env.example` with `TASTEBASE_DASHBOARD_URL`, `TASTEBASE_LIBRARY_URL`, `TASTEBASE_AGENT_URL`
+- [x] Personalize `chainlit.md` (replace default Chainlit placeholder)
+- [x] Add `make frontend`, `make stack`, `make dev-all` to Makefile
+- [x] Update `make help` with new targets
+- [x] Update `README.md` — simplify Running locally section, lead with `make dev-all`
+- [x] Update `CONTEXT.md` — document all Makefile commands with ports
+
+**Branch:** `feat/cross-app-navigation-links`
+
+---
+
 ## Backlog / future improvements
 
 - [ ] Fix duplicate items in pipeline (e.g. same movie from MovieBuddy + Letterboxd with different metadata — improve silver deduplication)
