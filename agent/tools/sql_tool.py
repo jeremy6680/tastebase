@@ -38,7 +38,7 @@ mart_unified_tastes:
   title       VARCHAR
   creator     VARCHAR  -- artist / author / director
   year        INTEGER
-  genres      VARCHAR[]
+  genres      VARCHAR  -- comma-separated string, e.g. 'Rock, Alternative'. Use: LIKE '%Rock%' or string_split(genres, ',')
   cover_url   VARCHAR
   external_ids JSON    -- {imdb, tmdb, isbn13, discogs_id, spotify_id, trakt_id}
   status      VARCHAR  -- owned | watched | read | wishlist | previously_owned | unread
@@ -95,7 +95,7 @@ Rules:
 - Only use SELECT. Never use INSERT, UPDATE, DELETE, DROP, CREATE, or any write operation.
 - Only reference the tables listed in the schema below.
 - Table names are unqualified (no schema prefix needed): use mart_unified_tastes, not main_gold.mart_unified_tastes.
-- For array columns (genres), use DuckDB array functions: list_contains(), array_to_string().
+- genres is a plain VARCHAR (comma-separated), NOT an array. Use LIKE '%Rock%' to filter, or genres as-is to display. Never use list_contains() or array_to_string() on genres.
 - Always use SELECT DISTINCT to avoid duplicate rows.
 - Always add LIMIT 20 unless the user explicitly asks for all results.
 - If the question cannot be answered with the available schema, output: CANNOT_ANSWER

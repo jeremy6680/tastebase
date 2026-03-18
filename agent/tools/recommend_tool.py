@@ -88,7 +88,7 @@ def _fetch_collection_items(domain: str | None = None, limit: int = 200) -> list
     Raises:
         RuntimeError: If the API call fails.
     """
-    url = _get_api_url("/items")
+    url = _get_api_url("/items/")
     params: dict = {"limit": limit}
     if domain:
         params["domain"] = domain
