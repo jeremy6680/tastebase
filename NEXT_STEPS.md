@@ -242,6 +242,28 @@
 
 ---
 
+## Phase 13 — Agent bugfixes & UX polish
+
+- [x] Fix model `claude-3-5-haiku-20241022` → `claude-haiku-4-5-20251001` (model deprecated)
+- [x] Fix DuckDB `search_path` missing in `sql_tool._execute_sql` (tables not found without schema prefix)
+- [x] Add `SELECT DISTINCT` instruction to SQL generation prompt (duplicate rows)
+- [x] Fix `app.py` streaming: suppress pre-tool tokens, display only final reformulated answer
+- [x] Fix `t.trim is not a function`: `AIMessage.content` can be a list of blocks — normalize via `_extract_text()`
+- [x] Fix `recommend_tool`: `details` field from DuckDB `json_object()` is a JSON string — parse with `json.loads()`
+- [x] Add `load_dotenv()` to `api/main.py` and `agent/app.py` — env vars now loaded automatically at startup
+- [x] Fix `recommend_tool._fetch_collection_items`: `/items` returns `PaginatedItems` dict, not a list — extract `data["items"]`
+- [x] Fix `recommend_tool._fetch_collection_items`: `/items/` 307 redirect — use trailing slash in URL
+- [x] Add collection exclusion list to recommendation prompt (items already owned are listed as DO NOT RECOMMEND)
+
+**Known remaining issues:**
+- `AGENT_MODEL` env var now controls the model for all three `_get_llm()` calls (graph, sql_tool, recommend_tool)
+- Recommendation exclusion list partially works — LLM sometimes ignores it for very famous items
+- `/items?limit=200` covers collections up to 200 items per page; larger collections need pagination
+
+**Branch:** `fix/agent-bugfixes`
+
+---
+
 ## Backlog / future improvements
 
 - [ ] Fix duplicate items in pipeline (e.g. same movie from MovieBuddy + Letterboxd with different metadata — improve silver deduplication)
@@ -254,4 +276,6 @@
 - [ ] Multi-user support (separate DuckDB per user, or schema-per-user)
 - [ ] Export taste profile as JSON/CSV
 - [ ] Recommendation engine using embeddings (sentence-transformers)
+- [ ] `recommend_tool` exclusion list: LLM ignores very famous items already in collection — consider SQL-level pre-filtering of artists already present before LLM call
+- [ ] `recommend_tool._fetch_collection_items` pagination: only fetches first 200 items — add loop for larger collections
 - [ ] Public taste profile page (read-only shareable URL)

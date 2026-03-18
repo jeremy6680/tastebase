@@ -33,8 +33,43 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Load .env from the project root before any module that reads env vars at import time
+# (graph.py, tools/*.py all read DUCKDB_PATH, API_BASE_URL, AGENT_MODEL on import).
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
+
 import chainlit as cl
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
+
+
+def _extract_text(content: object) -> str:
+    """Extract a plain string from an AIMessage content field.
+
+    LangChain / Anthropic messages can return content as either:
+    - A plain string: "Hello"
+    - A list of content blocks: [{"type": "text", "text": "Hello"}, ...]
+
+    Chainlit expects a plain string and will throw "t.trim is not a function"
+    if it receives a list. This helper normalises both formats.
+
+    Args:
+        content: The raw content field from an AIMessage.
+
+    Returns:
+        str: Extracted plain text, or empty string if nothing found.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+        return "".join(parts)
+    return str(content) if content else ""
+
 
 from agent.graph import graph
 
@@ -102,9 +137,19 @@ async def on_message(message: cl.Message) -> None:
     Flow:
       1. Detect language on the first message.
       2. Append the user message to the conversation history.
-      3. Stream the graph response token by token.
-      4. Show tool calls as collapsible Chainlit Steps.
+      3. Run the graph, surfacing tool calls as collapsible Chainlit Steps.
+      4. Display the final AI response in the main message bubble.
       5. Append the final AI response to the history.
+
+    Streaming strategy:
+      We use astream_events to surface tool call Steps in real time while the
+      graph runs. Token streaming is intentionally disabled: the LLM emits
+      tokens across multiple call_model passes (pre-tool and post-tool) and it
+      is impossible to distinguish which pass is the final user-facing response
+      without buffering everything. Instead, we collect the full final answer
+      from the last AIMessage in the graph output and update the response
+      bubble once at the end. This guarantees the displayed text is always the
+      correct reformulated answer, never raw SQL or intermediate reasoning.
 
     Args:
         message: Incoming Chainlit message from the user.
@@ -127,48 +172,63 @@ async def on_message(message: cl.Message) -> None:
         "language": language,
     }
 
-    # Prepare the streaming response message
+    # Placeholder bubble shown while the graph runs
     response_message = cl.Message(content="")
     await response_message.send()
 
-    # Stream graph events
-    final_content = ""
+    # Track open tool Steps by run_id so we can close them on tool_end
     tool_steps: dict[str, cl.Step] = {}
+    final_content = ""
 
     async for event in graph.astream_events(graph_input, version="v2"):
         kind = event["event"]
         name = event.get("name", "")
 
-        # --- Token streaming from the LLM ---
-        if kind == "on_chat_model_stream":
-            chunk = event["data"].get("chunk")
-            if isinstance(chunk, AIMessageChunk) and chunk.content:
-                token = chunk.content
-                # Skip tool-call metadata chunks (they have no display text)
-                if isinstance(token, str):
-                    await response_message.stream_token(token)
-                    final_content += token
-
-        # --- Tool call started ---
-        elif kind == "on_tool_start":
+        # --- Tool call started: open a collapsible Step ---
+        if kind == "on_tool_start":
             tool_name = name or "tool"
-            tool_input = event["data"].get("input", {})
+            input_data = event["data"].get("input", {})
             step = cl.Step(name=tool_name, type="tool")
-            step.input = str(tool_input)
+            if isinstance(input_data, dict):
+                # Render input as readable "key: value" lines
+                step.input = "\n".join(f"{k}: {v}" for k, v in input_data.items())
+            else:
+                step.input = str(input_data)
             await step.send()
-            run_id = event.get("run_id", tool_name)
-            tool_steps[run_id] = step
+            tool_steps[event.get("run_id", tool_name)] = step
 
-        # --- Tool call completed ---
+        # --- Tool call completed: close the Step with its output ---
         elif kind == "on_tool_end":
             run_id = event.get("run_id", "")
             step = tool_steps.pop(run_id, None)
             if step:
-                output = event["data"].get("output", "")
-                step.output = str(output)
+                step.output = str(event["data"].get("output", ""))
                 await step.update()
 
-    # Persist the final AI response in the conversation history
+        # --- Capture final AI message from the graph output ---
+        # on_chain_end fires when a LangGraph node completes.
+        # We watch for call_model completing and extract the last AIMessage.
+        elif kind == "on_chain_end" and name == "call_model":
+            output = event["data"].get("output", {})
+            node_messages = output.get("messages", [])
+            for msg in reversed(node_messages):
+                if isinstance(msg, AIMessage):
+                    # Only capture if this message has no tool_calls
+                    # (i.e. it is the final user-facing response, not an
+                    # intermediate "I will call sql_tool" message).
+                    if not getattr(msg, "tool_calls", None):
+                        text = _extract_text(msg.content)
+                        if text:
+                            final_content = text
+                            break
+
+    # Update the response bubble with the final reformulated answer
     if final_content:
+        response_message.content = final_content
+        await response_message.update()
         messages.append(AIMessage(content=final_content))
         cl.user_session.set("messages", messages)
+    else:
+        # Fallback: should not happen in normal operation
+        response_message.content = "_(Aucune réponse générée — vérifie les logs du serveur.)_"
+        await response_message.update()

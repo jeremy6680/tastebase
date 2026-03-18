@@ -16,6 +16,7 @@ No embeddings or ML are used in v1 — see backlog in NEXT_STEPS.md.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 
@@ -70,6 +71,45 @@ def _fetch_taste_profile() -> list[dict]:
         ) from exc
 
 
+def _fetch_collection_items(domain: str | None = None, limit: int = 200) -> list[dict]:
+    """Fetch items already in the collection so the LLM can exclude them.
+
+    Uses GET /items with an optional domain filter and a high limit so we
+    capture the full collection for the relevant domain(s). The result is
+    used to build an exclusion list injected into the recommendation prompt.
+
+    Args:
+        domain: Optional domain filter (music, book, manga, movie, series, anime).
+        limit: Maximum number of items to retrieve (default 200).
+
+    Returns:
+        list[dict]: Items with at least title and creator fields.
+
+    Raises:
+        RuntimeError: If the API call fails.
+    """
+    url = _get_api_url("/items/")
+    params: dict = {"limit": limit}
+    if domain:
+        params["domain"] = domain
+
+    try:
+        response = httpx.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        # /items returns PaginatedItems: {items: [...], total: N, ...}
+        data = response.json()
+        return data.get("items", []) if isinstance(data, dict) else data
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(
+            f"API error {exc.response.status_code} fetching collection items: "
+            f"{exc.response.text}"
+        ) from exc
+    except httpx.RequestError as exc:
+        raise RuntimeError(
+            f"Could not reach the TasteBase API at {_API_BASE_URL}: {exc}"
+        ) from exc
+
+
 def _fetch_top_rated(domain: str | None = None, limit: int = 20) -> list[dict]:
     """Fetch top-rated items from GET /stats/top-rated.
 
@@ -106,12 +146,16 @@ def _fetch_top_rated(domain: str | None = None, limit: int = 20) -> list[dict]:
 def _build_taste_context(
     profile: list[dict],
     top_rated: list[dict],
+    collection_items: list[dict] | None = None,
 ) -> str:
     """Format taste profile and top-rated items into a readable context string for the LLM.
 
     Args:
         profile: Rows from mart_taste_profile.
         top_rated: Top-rated item summaries.
+        collection_items: Full list of items already in the collection, used
+            to build an exclusion list so the LLM does not recommend items
+            the user already owns or has consumed.
 
     Returns:
         str: Formatted context string to inject into the recommendation prompt.
@@ -124,7 +168,9 @@ def _build_taste_context(
         lines.append("## Collection overview")
         for row in domain_rows:
             domain = row.get("dimension", "?")
-            details = row.get("details") or {}
+            # details is a JSON string from DuckDB's json_object() — parse it
+            raw_details = row.get("details") or "{}"
+            details: dict = json.loads(raw_details) if isinstance(raw_details, str) else raw_details
             total = details.get("total_items", 0)
             avg = details.get("avg_rating", "—")
             lines.append(f"- {domain}: {total} items, avg rating {avg}/5")
@@ -177,6 +223,28 @@ def _build_taste_context(
             rating = item.get("rating", "?")
             lines.append(f"- [{domain}] {title} — {creator} ({year}) ★{rating}")
 
+    # --- Already-owned items: STRICT exclusion list for the LLM ---
+    # This is the critical section: we list every item in the collection
+    # so the LLM cannot recommend something the user already has.
+    if collection_items:
+        lines.append("\n## ALREADY IN COLLECTION — DO NOT RECOMMEND THESE")
+        lines.append(
+            "The following items are already in the user's collection. "
+            "You MUST NOT recommend any of them, or any artist/creator "
+            "whose work is already represented below, unless specifically asked to."
+        )
+        for item in collection_items:
+            title = item.get("title", "?")
+            creator = item.get("creator") or ""
+            domain = item.get("domain", "?")
+            year = item.get("year") or ""
+            entry = f"- [{domain}] {title}"
+            if creator:
+                entry += f" — {creator}"
+            if year:
+                entry += f" ({year})"
+            lines.append(entry)
+
     return "\n".join(lines)
 
 
@@ -187,7 +255,7 @@ def _get_llm() -> ChatAnthropic:
         ChatAnthropic: Configured LLM instance (Haiku for speed).
     """
     return ChatAnthropic(
-        model="claude-3-5-haiku-20241022",
+        model=os.environ.get("AGENT_MODEL", "claude-haiku-4-5-20251001"),
         temperature=0.7,   # slightly creative for recommendations
         max_tokens=1024,
     )
@@ -287,8 +355,19 @@ def recommend_tool(request: str) -> str:
         logger.error("Failed to fetch top-rated items: %s", exc)
         return f"Impossible de récupérer les items les mieux notés : {exc}"
 
+    # Fetch the full collection to build a strict exclusion list.
+    # If this call fails, we degrade gracefully (no exclusion list)
+    # rather than blocking the whole recommendation.
+    # Note: /items enforces le=200 per page — 200 covers most personal collections.
+    try:
+        collection_items = _fetch_collection_items(limit=200)
+        logger.info("Exclusion list: %d items fetched from collection", len(collection_items))
+    except RuntimeError as exc:
+        logger.warning("Could not fetch collection items for exclusion list: %s", exc)
+        collection_items = []
+
     # Step 2 — Build context string
-    taste_context = _build_taste_context(profile, top_rated)
+    taste_context = _build_taste_context(profile, top_rated, collection_items)
 
     if not taste_context.strip():
         return (

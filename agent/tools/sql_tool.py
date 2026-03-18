@@ -38,7 +38,7 @@ mart_unified_tastes:
   title       VARCHAR
   creator     VARCHAR  -- artist / author / director
   year        INTEGER
-  genres      VARCHAR[]
+  genres      VARCHAR  -- comma-separated string, e.g. 'Rock, Alternative'. Use: LIKE '%Rock%' or string_split(genres, ',')
   cover_url   VARCHAR
   external_ids JSON    -- {imdb, tmdb, isbn13, discogs_id, spotify_id, trakt_id}
   status      VARCHAR  -- owned | watched | read | wishlist | previously_owned | unread
@@ -94,7 +94,9 @@ Rules:
 - Output ONLY the SQL query, no explanation, no markdown fences.
 - Only use SELECT. Never use INSERT, UPDATE, DELETE, DROP, CREATE, or any write operation.
 - Only reference the tables listed in the schema below.
-- For array columns (genres), use DuckDB array functions: list_contains(), array_to_string().
+- Table names are unqualified (no schema prefix needed): use mart_unified_tastes, not main_gold.mart_unified_tastes.
+- genres is a plain VARCHAR (comma-separated), NOT an array. Use LIKE '%Rock%' to filter, or genres as-is to display. Never use list_contains() or array_to_string() on genres.
+- Always use SELECT DISTINCT to avoid duplicate rows.
 - Always add LIMIT 20 unless the user explicitly asks for all results.
 - If the question cannot be answered with the available schema, output: CANNOT_ANSWER
 
@@ -176,7 +178,7 @@ def _get_llm() -> ChatAnthropic:
         ChatAnthropic: Configured LLM instance.
     """
     return ChatAnthropic(
-        model="claude-3-5-haiku-20241022",
+        model=os.environ.get("AGENT_MODEL", "claude-haiku-4-5-20251001"),
         temperature=0,
         max_tokens=512,
     )
@@ -222,6 +224,8 @@ def _execute_sql(sql: str, db_path: str) -> tuple[list[tuple], list[str]]:
     """
     try:
         conn = duckdb.connect(db_path, read_only=True)
+        # Set search_path so table names resolve without schema prefix
+        conn.execute("SET search_path = 'main_gold,main_silver,main_bronze,main'")
         result = conn.execute(sql)
         rows = result.fetchall()
         columns = [desc[0] for desc in result.description]

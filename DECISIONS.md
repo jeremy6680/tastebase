@@ -698,6 +698,54 @@ state patterns needed. Vite's HMR makes the development loop fast.
 
 ---
 
+### DEC-033 — Agent model configurable via AGENT_MODEL env var
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** The agent was hardcoded to `claude-3-5-haiku-20241022`, which was
+deprecated by Anthropic. All three `_get_llm()` functions (in `graph.py`,
+`sql_tool.py`, `recommend_tool.py`) shared the same hardcoded string.
+
+**Decision:** All three `_get_llm()` calls now read from `os.environ.get("AGENT_MODEL",
+"claude-haiku-4-5-20251001")`. The env var `AGENT_MODEL` in `.env` controls the model
+for the entire agent stack.
+
+**Rationale:** A single env var makes model upgrades a one-line change in `.env`
+without touching any code. The fallback to the current Haiku model ensures the agent
+works out of the box without any `.env` configuration.
+
+---
+
+### DEC-034 — Chainlit streaming: suppress pre-tool tokens, collect final answer from on_chain_end
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** The Chainlit `app.py` used `astream_events` token streaming, but tokens
+are emitted across two `call_model` passes — one before tool calls (where the LLM
+echos intermediate reasoning such as raw SQL) and one after (the final reformulated
+answer). Distinguishing these in real time is not reliably possible.
+
+Additionally, `AIMessage.content` returned by Anthropic models can be a list of
+content blocks (`[{"type": "text", "text": "..."}]`) rather than a plain string,
+causing Chainlit's JS layer to throw `t.trim is not a function`.
+
+**Decision:**
+- Disable token streaming entirely.
+- Listen to `on_chain_end` events for the `call_model` node.
+- Extract the last `AIMessage` without `tool_calls` as the final answer.
+- Normalize `content` via `_extract_text()` before passing to Chainlit.
+- Update the response bubble once at the end via `response_message.update()`.
+- Tool call Steps (`on_tool_start` / `on_tool_end`) are still surfaced in real time.
+
+**Rationale:** Collecting the final answer from `on_chain_end` is deterministic and
+correct regardless of how many tool call passes occur. The trade-off (response appears
+all at once rather than streaming) is acceptable given that tool Steps provide live
+feedback during processing.
+
+---
+
 ### DEC-029 — Hard delete for manually created items
 
 **Date:** Mar, 2026

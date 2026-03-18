@@ -146,7 +146,7 @@ def _get_llm() -> ChatAnthropic:
         ChatAnthropic: LLM instance with tools bound.
     """
     llm = ChatAnthropic(
-        model=os.environ.get("AGENT_MODEL", "claude-3-5-haiku-20241022"),
+        model=os.environ.get("AGENT_MODEL", "claude-haiku-4-5-20251001"),
         temperature=0,
         max_tokens=2048,
     )
