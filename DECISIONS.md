@@ -113,6 +113,80 @@
 
 ---
 
+### DEC-030 — mart_ratings switched to incremental materialization
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** `mart_ratings` was materialized as a `table`, meaning `dbt run` rebuilt
+it from scratch on every pipeline run. User ratings set via the API (`source='user'`)
+were silently overwritten if the source CSV did not contain a rating for that item.
+
+**Options considered:**
+
+- Keep `table` materialization + post-hook UPSERT: fragile — dbt's `CREATE OR REPLACE`
+  runs before any hook, so the table is already empty when the hook fires.
+- Satellite table managed entirely outside dbt (like `mart_item_categories`): removes
+  dbt visibility and testing over the ratings model.
+- `incremental` materialization with `AND id NOT IN (SELECT item_id FROM {{ this }})`:
+  inserts only new items on subsequent runs; existing rows (including user ratings) are
+  never touched by dbt.
+
+**Decision:** Switch `mart_ratings` to `incremental` materialization. On first run the
+full set of rated items is inserted. On subsequent runs only items whose `item_id` is
+not yet present in the table are inserted. User ratings (`source='user'`) survive all
+future pipeline rebuilds.
+
+**Rationale:** Preserves user data across pipeline rebuilds without removing the model
+from dbt's DAG. The incremental filter is a single `NOT IN` subquery — simple, auditable,
+and consistent with how dbt incremental models are commonly used.
+
+---
+
+### DEC-031 — CSV upload saves to canonical filename; pipeline always runs in full
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** The `POST /ingest/upload` endpoint receives a CSV file for a named source
+(e.g. `bookbuddy`) and must trigger the full ingestion pipeline. The file's original
+name from the user's device is irrelevant to the pipeline.
+
+**Decision:** The uploaded file is saved under the canonical filename for its source
+(e.g. `data/raw/bookbuddy.csv`), overwriting any previous version. After saving, the
+full pipeline runs: `run_ingestion.py` (all sources) + `dbt run` (all models).
+
+**Rationale:** Running the full pipeline rather than a partial one avoids partial state
+where bronze tables are out of sync with silver/gold. The canonical filename requirement
+(DEC-014) is enforced server-side — the user does not need to rename files before upload.
+
+---
+
+### DEC-032 — Spotify httpx calls capped at 30s timeout; Retry-After > 60s skips the client
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** During ingestion triggered by `POST /ingest/upload`, the Spotify client
+blocked the entire uvicorn worker indefinitely because:
+1. `httpx` calls had no timeout configured.
+2. The `Retry-After` header from a 429 response was 83,000+ seconds (~23 hours),
+   and the code called `time.sleep(retry_after)` unconditionally.
+
+**Decision:**
+- Add `timeout=30` to all `httpx.get` and `httpx.post` calls in `SpotifyClient` and
+  `TraktClient`.
+- In `SpotifyClient._get()`: if `Retry-After > 60`, raise `HTTPStatusError` immediately
+  instead of sleeping. The per-endpoint `try/except` in `_parse()` catches this and logs
+  a warning, allowing the other endpoints to be skipped gracefully.
+
+**Rationale:** A 30s timeout is sufficient for normal API latency. Sleeping 23 hours
+inside a synchronous web server worker is unacceptable. The 60s cap means short rate
+limit windows are still retried, while long windows (Spotify's extended rate limiting)
+fail fast and log a clear message.
+
+---
+
 ## Tech stack
 
 ### DEC-007 — dbt-duckdb over raw SQL scripts
@@ -248,12 +322,12 @@ must use:
 | MovieBuddy | `data/raw/moviebuddy.csv` |
 | Letterboxd | `data/raw/letterboxd.csv` |
 
-Renaming instructions are documented in `docs/data-sources.md`.
+The `POST /ingest/upload` endpoint enforces this automatically — the uploaded file
+is always saved under the canonical name regardless of its original filename.
 
 **Rationale:** A fixed name per source keeps loader code simple (no
 glob patterns, no dynamic file discovery) and makes behavior
-predictable. The renaming constraint is lightweight and clearly
-documented.
+predictable.
 
 ---
 
@@ -536,6 +610,26 @@ directly into `sources/tastebase/`, eliminating the need for the copy step.
 
 ---
 
+### DEC-026 — Evidence pages guard empty datasets with {#if} instead of empty components
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** Evidence's `BigValue` component errors visibly when its data query
+returns 0 rows. `DataTable` and chart components display an unhelpful empty state.
+Several domains (music, series) have 0 rated items; anime has 0 items entirely.
+
+**Decision:** Use Evidence's Svelte `{#if query.length > 0}...{:else}<Note>...{/if}`
+syntax to guard any component that depends on a query that may return 0 rows.
+`BigValue` components for domains with no data use `COUNT(*)` queries instead
+(always returns exactly 1 row) rather than filtering on `stat_type`/`dimension`.
+
+**Rationale:** An explicit empty state with a descriptive `<Note>` is better UX
+than a crashed component. The guard also makes the dashboard forward-compatible:
+sections will populate automatically once data is available, without any page edits.
+
+---
+
 ### DEC-027 — mart_item_categories as a satellite table outside the dbt pipeline
 
 **Date:** Mar, 2026
@@ -572,7 +666,7 @@ script.
 
 ---
 
-### DEC-028 — Vue 3 + Vite as the frontend stack (DEC-028)
+### DEC-028 — Vue 3 + Vite as the frontend stack
 
 **Date:** Mar, 2026
 **Status:** Accepted
@@ -596,7 +690,7 @@ and SCSS (sass) for styling. No component library — custom design system via S
 - `additionalData` in `vite.config.js` injects `_variables.scss` into every `<style lang="scss">` block via `import.meta.url` (ESM-compatible, avoids `__dirname`)
 - All domain metadata (color, icon, route) centralised in `config/domains.js`
 - All category taxonomy centralised in `config/categories.js`
-- API calls go through thin modules in `src/api/` (items, ratings, categories, stats)
+- API calls go through thin modules in `src/api/` (items, ratings, categories, stats, ingestion)
 
 **Rationale:** Vue 3 provides the right balance of power and simplicity for this
 project size. The Composition API maps cleanly to the filter/pagination/selection
@@ -628,23 +722,3 @@ The UI confirmation dialog makes the consequence clear to the user.
 **Rationale:** Hard delete is appropriate for personal-scale data where the user
 has full control. Soft delete adds query complexity everywhere with little benefit
 for a single-user application. The pipeline rebuild caveat is acceptable.
-
----
-
-### DEC-026 — Evidence pages guard empty datasets with {#if} instead of empty components
-
-**Date:** Mar, 2026
-**Status:** Accepted
-
-**Context:** Evidence's `BigValue` component errors visibly when its data query
-returns 0 rows. `DataTable` and chart components display an unhelpful empty state.
-Several domains (music, series) have 0 rated items; anime has 0 items entirely.
-
-**Decision:** Use Evidence's Svelte `{#if query.length > 0}...{:else}<Note>...{/if}`
-syntax to guard any component that depends on a query that may return 0 rows.
-`BigValue` components for domains with no data use `COUNT(*)` queries instead
-(always returns exactly 1 row) rather than filtering on `stat_type`/`dimension`.
-
-**Rationale:** An explicit empty state with a descriptive `<Note>` is better UX
-than a crashed component. The guard also makes the dashboard forward-compatible:
-sections will populate automatically once data is available, without any page edits.

@@ -204,11 +204,13 @@
   - `GET /items` extended: genre/sub_genre filter, search by creator, sort params
   - `POST /items` fixed: genres as VARCHAR, removed non-existent columns
   - `get_db` search_path fixed to resolve `main_gold,main_silver,main_bronze,main`
-- [ ] Upload CSV — trigger ingestion from the UI
+- [x] Upload CSV — trigger ingestion from the UI
 
 **Known issues / notes:**
 - Delete is a hard delete — dbt-managed items reappear on next `dbt run` (by design)
 - Genre filter uses INNER JOIN on `mart_item_categories` — only categorised items appear
+- Upload runs the full pipeline synchronously; other API requests are blocked during ingestion. Run uvicorn with `--workers 4` to mitigate. Background task queue is a Phase 11+ improvement.
+- Spotify is rate-limited (~23h window); ingestion skips Spotify gracefully with a WARNING log
 
 **Branch:** `feat/frontend-ui`
 

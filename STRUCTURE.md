@@ -38,7 +38,8 @@ tastebase/
 │
 ├── ingestion/                    # Python ingestion layer (CSV + API → DuckDB bronze)
 │   ├── __init__.py
-│   ├── base_loader.py            # Abstract base class; defines the load() interface
+│   ├── base_loader.py            # Abstract base class for CSV loaders; defines load() interface
+│   ├── base_api_client.py        # Abstract base class for API clients (separate from BaseLoader)
 │   ├── csv/                      # One loader per CSV source
 │   │   ├── __init__.py
 │   │   ├── musicbuddy_loader.py  # Parses musicbuddy.csv → raw_musicbuddy table
@@ -49,8 +50,8 @@ tastebase/
 │   │   └── generic_loader.py     # Handles user-supplied template CSVs (any domain)
 │   ├── apis/                     # One client per external API
 │   │   ├── __init__.py
-│   │   ├── spotify_client.py     # Fetches saved albums, recently played, top items
-│   │   └── trakt_client.py       # Fetches watched movies, watched shows, ratings
+│   │   ├── spotify_client.py     # Fetches saved albums, recently played, top items (30s timeout; Retry-After capped at 60s)
+│   │   └── trakt_client.py       # Fetches watched movies, watched shows, ratings (30s timeout)
 │   └── run_ingestion.py          # Orchestrator: runs all loaders in dependency order
 │
 ├── transform/                    # dbt-duckdb project (medallion architecture)
@@ -63,7 +64,7 @@ tastebase/
 │   │   │   ├── raw_goodreads.sql     # Materializes raw_goodreads as table
 │   │   │   ├── raw_moviebuddy.sql    # Materializes raw_moviebuddy as table
 │   │   │   ├── raw_letterboxd.sql    # Materializes raw_letterboxd as table
-│   │   │   ├── raw_spotify.sql       # Materializes raw_spotify as table
+│   │   │   ├── raw_spotify.sql       # Materializes raw_spotify as table (pre_hook creates empty table if missing)
 │   │   │   └── raw_trakt.sql         # Materializes raw_trakt as table
 │   │   ├── silver/               # Staging layer — cleaned, typed, deduplicated, rated
 │   │   │   ├── stg_music.sql         # MusicBuddy (primary) + Spotify (enrichment)
@@ -73,7 +74,7 @@ tastebase/
 │   │   │   └── stg_anime.sql         # MovieBuddy (TV Show + Anime genre) + Trakt anime
 │   │   └── gold/                 # Mart layer — analytical models for dashboard + agent
 │   │       ├── mart_unified_tastes.sql   # All domains unified into a single model
-│   │       ├── mart_ratings.sql          # Current rating per item (imported or user)
+│   │       ├── mart_ratings.sql          # Current rating per item — incremental to preserve user ratings
 │   │       ├── mart_rating_events.sql    # Append-only audit trail of rating changes
 │   │       ├── mart_top_rated.sql        # Top-rated items per domain (filterable)
 │   │       └── mart_taste_profile.sql    # Aggregate stats: genres, creators, decades
@@ -95,30 +96,58 @@ tastebase/
 ├── api/                          # FastAPI backend (the only layer that touches DuckDB)
 │   ├── __init__.py
 │   ├── main.py                   # FastAPI app: CORS, lifespan, router registration
+│   ├── dependencies.py           # get_db: per-request DuckDB connection via Depends
 │   ├── routers/
 │   │   ├── items.py              # GET/POST/PATCH/DELETE taste items
 │   │   ├── ratings.py            # POST rating → inserts into mart_ratings + rating_events
-│   │   ├── ingestion.py          # POST /ingest → runs run_ingestion.py + dbt run
+│   │   ├── categories.py         # GET/POST per-item category, POST /categories/batch
+│   │   ├── ingestion.py          # POST /ingest (pipeline trigger), POST /ingest/upload (CSV upload), GET /ingest/sources
 │   │   └── stats.py              # GET endpoints for dashboard widgets (counts, top lists)
 │   └── schemas/
 │       ├── item.py               # Pydantic models: TasteItem, TasteItemCreate, etc.
-│       └── rating.py             # Pydantic models: Rating, RatingCreate, RatingEvent
+│       ├── rating.py             # Pydantic models: Rating, RatingCreate, RatingEvent
+│       └── category.py           # Pydantic models: CategoryUpsert, CategoryBatch, Category
 │
-├── frontend/                     # Vanilla JS + HTML responsive UI
-│   ├── index.html                # Single-page app entry point
-│   ├── assets/
-│   │   ├── css/
-│   │   │   └── main.css          # Styles (SCSS compiled or plain CSS)
-│   │   └── js/
-│   │       ├── app.js            # Main app logic: routing, state, API calls
-│   │       ├── browse.js         # Browse/filter/sort items grid
-│   │       ├── rating.js         # Star-rating widget component
-│   │       └── upload.js         # CSV drag-and-drop upload widget
-│   └── i18n/
-│       ├── fr.json               # French UI strings (default language)
-│       └── en.json               # English UI strings
+├── frontend/                     # Vue 3 + Vite single-page application
+│   ├── index.html                # SPA entry point
+│   ├── vite.config.js            # Vite config: Vue plugin, SCSS injection, dev proxy → :8000
+│   ├── package.json
+│   └── src/
+│       ├── main.js               # App bootstrap: Vue, vue-router, vue-i18n
+│       ├── App.vue               # Root component: AppSidebar + RouterView layout
+│       ├── api/                  # Thin Axios modules — one per FastAPI router
+│       │   ├── client.js         # Axios instance (baseURL /api, timeout 30s, error normalization)
+│       │   ├── items.js          # fetchItems, fetchItem, createItem, deleteItem
+│       │   ├── ratings.js        # fetchRating, upsertRating
+│       │   ├── categories.js     # fetchCategory, upsertCategory, batchUpsertCategories
+│       │   ├── stats.js          # fetchCounts, fetchRecent, fetchTasteProfile
+│       │   └── ingestion.js      # fetchSources, uploadCsv (timeout=0 for long pipeline runs)
+│       ├── config/
+│       │   ├── domains.js        # Domain metadata: key, label, icon, color, route
+│       │   └── categories.js     # Full genre/sub-genre taxonomy per domain
+│       ├── i18n/
+│       │   ├── fr.json           # French UI strings (default language)
+│       │   └── en.json           # English UI strings
+│       ├── router/
+│       │   └── index.js          # Vue Router: one route per domain + home
+│       ├── views/
+│       │   ├── HomeView.vue      # Domain cards grid with item + rated counts
+│       │   └── ItemBrowser.vue   # Paginated browse grid with FilterBar
+│       └── components/
+│           ├── AppSidebar.vue        # Domain nav, language toggle, Import CSV button, collapse
+│           ├── FilterBar.vue         # Search, rating chips, decade chips, genre selects, sort
+│           ├── ItemCard.vue          # Title, creator, year, star rating, category badge
+│           ├── StarRating.vue        # Read-only + interactive star widget
+│           ├── CategorySelector.vue  # Chained genre/sub-genre selects per domain
+│           ├── BatchCategoryBar.vue  # Multi-select batch category assignment
+│           ├── AddItemModal.vue      # Manual item creation form
+│           └── UploadModal.vue       # CSV drag-and-drop upload: source select, progress, pipeline logs
 │
 ├── dashboard/                    # Evidence.dev static dashboard
+│   ├── sources/
+│   │   └── tastebase/
+│   │       ├── connection.yaml       # DuckDB connection config (read_only: true)
+│   │       └── warehouse.duckdb      # [GITIGNORED] Physical copy of data/warehouse.duckdb
 │   └── pages/
 │       ├── index.md              # Overview: counts per domain, recently added
 │       ├── music.md              # Music: top albums, genres, artists
@@ -126,7 +155,7 @@ tastebase/
 │       ├── manga.md              # Manga: top rated, publishers, volumes
 │       ├── movies.md             # Movies: top rated, directors, decades
 │       ├── series.md             # Series: top rated, networks, genres
-│       └── anime.md              # Anime: top rated, studios, seasons
+│       └── anime.md              # Anime: top rated, studios, seasons (guarded — DEC-019)
 │
 ├── tests/                        # pytest test suite
 │   ├── ingestion/
@@ -157,7 +186,7 @@ tastebase/
 | ------ | ------- | --------------- | ------------------------------------------------ |
 | Bronze | `raw_`  | table           | Raw data as-is; never modified after ingestion   |
 | Silver | `stg_`  | view            | Clean, typed, domain-tagged, deduplicated, rated |
-| Gold   | `mart_` | table           | Analytical marts for dashboard widgets and agent |
+| Gold   | `mart_` | table / incremental | Analytical marts for dashboard widgets and agent |
 
 ## Key data flow
 
@@ -171,3 +200,14 @@ CSV files / APIs
     → LangGraph agent (agent/) ← queries gold only
     → Evidence.dev dashboard  ← reads gold directly via DuckDB
 ```
+
+## Satellite tables (outside dbt DAG)
+
+These tables live in `main_gold` but are managed entirely by FastAPI — `dbt run` never
+touches them. They survive all pipeline rebuilds.
+
+| Table                  | Created by          | Purpose                              |
+| ---------------------- | ------------------- | ------------------------------------ |
+| `mart_ratings`         | dbt (incremental)   | Current rating per item — user ratings preserved across runs |
+| `mart_rating_events`   | dbt (table)         | Append-only rating audit trail       |
+| `mart_item_categories` | FastAPI lifespan    | User-assigned genre/sub_genre per item |
