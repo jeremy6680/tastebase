@@ -14,6 +14,12 @@ import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
+from dotenv import load_dotenv
+
+# Load .env from the project root (two levels up from api/main.py)
+# Must run before any os.getenv() call, including at import time in routers.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
