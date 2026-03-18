@@ -108,17 +108,17 @@ def _detect_language(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+import os
+
 @cl.on_chat_start
 async def on_chat_start() -> None:
-    """Initialise the agent session when a new chat starts.
-
-    Stores the conversation history and detected language in the Chainlit
-    user session so they persist across messages within the same chat.
-    """
+    """Initialise the agent session when a new chat starts."""
     cl.user_session.set("messages", [])
-    cl.user_session.set("language", "fr")  # default, updated on first message
+    cl.user_session.set("language", "fr")
 
-    # Welcome message with quick access links to companion apps
+    dashboard_url = os.getenv("TASTEBASE_DASHBOARD_URL", "http://localhost:3000")
+    library_url = os.getenv("TASTEBASE_LIBRARY_URL", "http://localhost:5173")
+
     await cl.Message(
         content=(
             "👋 Bienvenue sur **TasteBase** !\n\n"
@@ -128,8 +128,8 @@ async def on_chat_start() -> None:
             "« Note Dune à 5 étoiles », « Recommande-moi des livres de SF »_\n\n"
             "---\n\n"
             "🔗 **Accès rapide :** "
-            "[📊 Dashboard](http://localhost:3000) · "
-            "[📚 Bibliothèque](http://localhost:5173)"
+            f"[📊 Dashboard]({dashboard_url}) · "
+            f"[📚 Bibliothèque]({library_url})"
         )
     ).send()
 

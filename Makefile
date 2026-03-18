@@ -10,7 +10,7 @@
 -include .env
 export
 
-.PHONY: install ingest transform pipeline seed agent api dev test lint \
+.PHONY: install ingest transform pipeline seed agent api frontend stack dev-all dev test lint \
         dashboard dashboard-sync help
 
 # Install Python dependencies
@@ -51,7 +51,19 @@ agent:
 api:
 	uvicorn api.main:app --reload --port 8000
 
-# Start the full stack via Docker Compose
+# Start the Vue frontend dev server
+frontend:
+	cd frontend && npm run dev
+
+# Start API + agent + frontend in parallel (3 terminals in one)
+stack:
+	make api & make agent & make frontend
+
+# Start everything: API + agent + frontend + Evidence dashboard
+dev-all:
+	make api & make agent & make frontend & make dashboard
+
+# Start the full stack via Docker Compose (production-like)
 dev:
 	docker compose up --build
 
@@ -78,7 +90,10 @@ help:
 	@echo "  make dashboard       Sync warehouse + start Evidence dev server"
 	@echo "  make agent           Start Chainlit agent UI (port 8080)"
 	@echo "  make api             Start FastAPI backend (port 8000)"
-	@echo "  make dev             Start full stack via Docker Compose"
+	@echo "  make frontend        Start Vue frontend dev server (port 5173)"
+	@echo "  make stack           Start API + agent + frontend in parallel"
+	@echo "  make dev-all         Start everything: API + agent + frontend + dashboard"
+	@echo "  make dev             Start full stack via Docker Compose (production-like)"
 	@echo "  make test            Run pytest"
 	@echo "  make lint            Run ruff + mypy"
 	@echo ""

@@ -396,9 +396,14 @@ make install          # Install Python dependencies
 make ingest           # Run all ingestion scripts
 make transform        # Run dbt models (bronze → silver → gold)
 make pipeline         # ingest + transform (full refresh)
-make agent            # Start Chainlit agent UI
-make api              # Start FastAPI backend
-make dev              # Start full stack (docker-compose)
+make api              # Start FastAPI backend (port 8000)
+make agent            # Start Chainlit agent UI (port 8080)
+make frontend         # Start Vue frontend dev server (port 5173)
+make dashboard-sync   # Copy warehouse.duckdb to Evidence source folder
+make dashboard        # Sync warehouse + start Evidence dev server (port 3000)
+make stack            # Start API + agent + frontend in parallel
+make dev-all          # Start everything: API + agent + frontend + dashboard
+make dev              # Start full stack via Docker Compose (production-like)
 make test             # Run pytest
 make lint             # Run ruff + mypy
 ```

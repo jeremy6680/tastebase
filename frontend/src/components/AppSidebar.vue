@@ -62,8 +62,43 @@
       </RouterLink>
     </nav>
 
-    <!-- Bottom: import CSV + language toggle + collapse -->
+    <!-- Bottom: external links + import CSV + language toggle + collapse -->
     <div class="sidebar__footer">
+      <!-- External app links -->
+      <div class="sidebar__divider sidebar__divider--subtle" />
+
+      <a
+        :href="dashboardUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="sidebar__link sidebar__link--external"
+        :title="isCollapsed ? $t('nav.dashboard') : undefined"
+      >
+        <span class="sidebar__link-icon">📊</span>
+        <Transition name="fade">
+          <span v-if="!isCollapsed" class="sidebar__link-label">{{
+            $t('nav.dashboard')
+          }}</span>
+        </Transition>
+      </a>
+
+      <a
+        :href="agentUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="sidebar__link sidebar__link--external"
+        :title="isCollapsed ? $t('nav.agent') : undefined"
+      >
+        <span class="sidebar__link-icon">🤖</span>
+        <Transition name="fade">
+          <span v-if="!isCollapsed" class="sidebar__link-label">{{
+            $t('nav.agent')
+          }}</span>
+        </Transition>
+      </a>
+
+      <div class="sidebar__divider sidebar__divider--subtle" />
+
       <!-- Import CSV -->
       <button
         class="sidebar__link sidebar__link--action"
@@ -113,12 +148,20 @@
 </template>
 
 <script setup>
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { DOMAINS } from "@/config/domains";
 import UploadModal from "@/components/UploadModal.vue";
 
-const { locale, t } = useI18n();
+const { locale } = useI18n();
+
+// ---------------------------------------------------------------------------
+// External app URLs — read from Vite env variables.
+// Set VITE_DASHBOARD_URL and VITE_AGENT_URL in frontend/.env.
+// Falls back to localhost defaults for local development.
+// ---------------------------------------------------------------------------
+const dashboardUrl = import.meta.env.VITE_DASHBOARD_URL || 'http://localhost:3000';
+const agentUrl = import.meta.env.VITE_AGENT_URL || 'http://localhost:8080';
 
 // Upload modal visibility
 const uploadModalOpen = ref(false);
@@ -128,8 +171,6 @@ const uploadModalOpen = ref(false);
  * Forces a page reload so counts and items refresh automatically.
  */
 function onIngestionComplete() {
-  // A full reload is the simplest way to refresh all cached API data
-  // without wiring a global event bus. Acceptable for a personal tool.
   window.location.reload();
 }
 
@@ -139,10 +180,8 @@ const isCollapsed = ref(
 );
 
 // Watch for changes and persist
-import { watch } from "vue";
 watch(isCollapsed, (val) => {
   localStorage.setItem("tastebase-sidebar-collapsed", String(val));
-  // Sync CSS custom property on root for main content margin
   document.documentElement.style.setProperty(
     "--sidebar-current-width",
     val ? "64px" : "220px",
@@ -177,18 +216,15 @@ function toggleLocale() {
   transition: width $transition-normal;
   overflow: hidden;
 
-  // Collapsed state
   &--collapsed {
     width: $sidebar-width-mini;
 
-    // Sync main content offset via CSS variable
     ~ .app-main {
       margin-left: $sidebar-width-mini;
     }
   }
 }
 
-// Brand / logo
 .sidebar__brand {
   padding: $space-6 $space-4;
   flex-shrink: 0;
@@ -229,7 +265,6 @@ function toggleLocale() {
   }
 }
 
-// Navigation
 .sidebar__nav {
   flex: 1;
   padding: $space-2 $space-3;
@@ -246,6 +281,7 @@ function toggleLocale() {
   color: $color-text-secondary;
   font-size: $text-sm;
   font-weight: $font-weight-regular;
+  text-decoration: none;
   transition:
     color $transition-fast,
     background-color $transition-fast;
@@ -260,7 +296,6 @@ function toggleLocale() {
     background-color: rgba(255, 255, 255, 0.04);
   }
 
-  // Active state — uses domain color via CSS custom property
   &--active {
     color: var(--domain-color, $color-accent);
     background-color: rgba(var(--domain-color, #c9a96e), 0.08);
@@ -275,9 +310,17 @@ function toggleLocale() {
     border: none;
     font-family: inherit;
   }
+
+  // External links open in new tab — subtle visual distinction
+  &--external {
+    opacity: 0.75;
+
+    &:hover {
+      opacity: 1;
+    }
+  }
 }
 
-// Home link has gold accent (no domain color)
 .sidebar__link:first-child {
   --domain-color: #{$color-accent};
 }
@@ -300,7 +343,6 @@ function toggleLocale() {
   text-overflow: ellipsis;
 }
 
-// Dividers
 .sidebar__divider {
   height: 1px;
   background-color: $color-border-subtle;
@@ -313,7 +355,6 @@ function toggleLocale() {
   }
 }
 
-// Footer
 .sidebar__footer {
   padding: $space-3;
   flex-shrink: 0;
@@ -346,7 +387,6 @@ function toggleLocale() {
   }
 }
 
-// Fade transition for labels
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity $transition-fast;
