@@ -233,11 +233,10 @@
 
 ## Phase 12 — Documentation + open source
 
-- [ ] Write `README.md` (project overview, quickstart, architecture diagram)
-- [ ] Write `docs/data-sources.md` (export instructions per app)
-- [ ] Write `docs/contributing.md`
-- [ ] Make repository public on GitHub
-- [ ] Publish blog post 1: Architecture overview
+- [x] Write `README.md` (project overview, quickstart, architecture diagram)
+- [x] Write `docs/data-sources.md` (export instructions per app)
+- [x] Write `docs/contributing.md`
+- [x] Make repository public on GitHub
 
 **Branch:** `feat/documentation`
 
@@ -245,7 +244,6 @@
 
 ## Backlog / future improvements
 
-- [ ] Upload CSV from the frontend UI (triggers `POST /ingest`)
 - [ ] Fix duplicate items in pipeline (e.g. same movie from MovieBuddy + Letterboxd with different metadata — improve silver deduplication)
 - [ ] Book categories: `genre`/`sub_genre` filter in browse is already in place; consider auto-detection from Goodreads shelves
 - [ ] MyAnimeList API integration
