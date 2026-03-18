@@ -2,23 +2,75 @@
 
 > Personal AI-powered cultural taste warehouse — music, books, manga, movies, series, anime.
 
-TasteBase centralises your cultural consumption data from multiple apps (MusicBuddy, BookBuddy, Goodreads, MovieBuddy, Letterboxd, Spotify, Trakt.tv) into a single DuckDB warehouse, exposes it through an interactive Vue 3 dashboard, and makes it queryable via a LangGraph conversational agent.
+[![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python)](https://python.org)
+[![dbt](https://img.shields.io/badge/dbt-duckdb-orange?logo=dbt)](https://docs.getdbt.com)
+[![DuckDB](https://img.shields.io/badge/DuckDB-0.10-yellow)](https://duckdb.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110-green?logo=fastapi)](https://fastapi.tiangolo.com)
+[![Vue 3](https://img.shields.io/badge/Vue-3-41b883?logo=vue.js)](https://vuejs.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-lightgrey)](LICENSE)
+
+TasteBase aggregates your cultural consumption data from multiple apps into a single
+[DuckDB](https://duckdb.org) warehouse, exposes it through an interactive Vue 3 frontend,
+and makes it queryable via a [LangGraph](https://langchain-ai.github.io/langgraph/)
+conversational agent.
 
 ---
 
-## Architecture overview
+## What it does
+
+- **Ingest** CSV exports and API data from MusicBuddy, BookBuddy, Goodreads, MovieBuddy,
+  Letterboxd, Spotify, and Trakt.tv
+- **Transform** raw data through a medallion architecture (bronze → silver → gold) using dbt
+- **Browse and rate** your entire cultural library from a single Vue 3 interface
+- **Query** your taste profile in natural language via a LangGraph + Chainlit chat agent
+- **Analyse** trends and patterns through an Evidence.dev analytics dashboard
+
+---
+
+## Architecture
 
 ```
-CSV exports / APIs
-    ↓ ingestion/ (Python)
-    ↓ Bronze layer  — raw tables, one per source
-    ↓ Silver layer  — cleaned, typed, deduplicated (dbt views)
-    ↓ Gold layer    — analytical marts (dbt tables)
-    ↓
-    ├── FastAPI backend  (api/)       ← all reads/writes go here
-    ├── Vue 3 frontend   (frontend/)  ← browse, rate, upload
-    ├── LangGraph agent  (agent/)     ← conversational queries
-    └── Evidence.dev     (dashboard/) ← read-only analytics
+┌──────────────────────────────────────────────────────────────────────┐
+│  Data sources                                                        │
+│  MusicBuddy · BookBuddy · Goodreads · MovieBuddy · Letterboxd        │
+│  Spotify API · Trakt.tv API                                          │
+└───────────────────────────┬──────────────────────────────────────────┘
+                            │ CSV exports + API calls
+                            ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  ingestion/  (Python)                                                │
+│  One loader per source · Audit columns injected (_source, _loaded_at)│
+└───────────────────────────┬──────────────────────────────────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  DuckDB warehouse  (data/warehouse.duckdb)                           │
+│                                                                      │
+│  Bronze  raw_musicbuddy · raw_bookbuddy · raw_goodreads              │
+│  (table) raw_moviebuddy · raw_letterboxd · raw_spotify · raw_trakt   │
+│                                                                      │
+│  Silver  stg_music · stg_books · stg_movies · stg_series · stg_anime │
+│  (view)  Normalized · deduplicated · unified 1–5 rating scale        │
+│                                                                      │
+│  Gold    mart_unified_tastes · mart_ratings · mart_rating_events     │
+│  (table) mart_top_rated · mart_taste_profile                         │
+└──────┬──────────────────────────────────────────┬────────────────────┘
+       │                                          │
+       ▼                                          ▼
+┌─────────────────────┐               ┌───────────────────────┐
+│  FastAPI  (api/)    │               │  Evidence.dev         │
+│  All reads + writes │               │  (dashboard/)         │
+│  Pydantic schemas   │               │  Read-only analytics  │
+└──────┬──────────────┘               └───────────────────────┘
+       │
+       ├──────────────────────────────┐
+       ▼                              ▼
+┌─────────────────────┐   ┌──────────────────────────┐
+│  Vue 3 + Vite       │   │  LangGraph + Chainlit    │
+│  (frontend/)        │   │  (agent/)                │
+│  Browse · rate ·    │   │  Conversational queries  │
+│  upload · manage    │   │  Natural language → SQL  │
+└─────────────────────┘   └──────────────────────────┘
 ```
 
 **Stack:** Python 3.12 · DuckDB · dbt-duckdb · FastAPI · Vue 3 + Vite · LangGraph · Chainlit · Evidence.dev
@@ -27,10 +79,12 @@ CSV exports / APIs
 
 ## Prerequisites
 
-- Python 3.12+
-- Node.js 18+
-- A virtual environment tool (`venv`, `pyenv`, etc.)
-- `dbt-duckdb` installed (included in `requirements.txt`)
+| Tool    | Minimum version | Notes                               |
+| ------- | --------------- | ----------------------------------- |
+| Python  | 3.12            | `python --version`                  |
+| Node.js | 18              | Required for frontend and dashboard |
+| pip     | latest          | `pip install --upgrade pip`         |
+| Git     | any             | —                                   |
 
 ---
 
@@ -42,7 +96,7 @@ CSV exports / APIs
 git clone https://github.com/jeremy6680/tastebase.git
 cd tastebase
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
@@ -52,198 +106,203 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Open `.env` and fill in:
+Edit `.env` and fill in the required values:
 
 ```bash
 # Required — must be an absolute path
 DUCKDB_PATH=/absolute/path/to/tastebase/data/warehouse.duckdb
 
-# Spotify (optional — enrichment only)
+# LLM — required for the agent
+ANTHROPIC_API_KEY=
+
+# Spotify (optional — album cover enrichment only)
 SPOTIFY_CLIENT_ID=
 SPOTIFY_CLIENT_SECRET=
 SPOTIFY_ACCESS_TOKEN=
 SPOTIFY_REFRESH_TOKEN=
 
-# Trakt.tv (optional)
+# Trakt.tv (optional — watched shows and movies)
 TRAKT_CLIENT_ID=
 TRAKT_CLIENT_SECRET=
 TRAKT_ACCESS_TOKEN=
 TRAKT_REFRESH_TOKEN=
 ```
 
-> ⚠️ `DUCKDB_PATH` **must be an absolute path**. dbt runs from `transform/` and will fail silently with a relative path.
+> ⚠️ `DUCKDB_PATH` **must be an absolute path**. dbt runs from `transform/` and resolves
+> paths relative to that directory — a relative path will silently fail.
 
 ### 3. Install frontend dependencies
 
 ```bash
-cd frontend
-npm install
-cd ..
+cd frontend && npm install && cd ..
+```
+
+### 4. Install dashboard dependencies
+
+```bash
+cd dashboard && npm install && cd ..
 ```
 
 ---
 
 ## Importing your data
 
-TasteBase reads CSV exports from your apps and saves them to `data/raw/` under fixed canonical filenames.
+TasteBase reads CSV exports from your apps. See [`docs/data-sources.md`](docs/data-sources.md)
+for step-by-step export instructions for each supported app.
 
 ### Option A — Via the web UI (recommended)
 
-1. Start the API (see below)
-2. Start the frontend dev server
+1. Start the API: `uvicorn api.main:app --workers 4`
+2. Start the frontend: `cd frontend && npm run dev`
 3. Click **"Importer un CSV"** in the sidebar
-4. Select the source (e.g. MusicBuddy), drop your exported CSV, click **Importer**
-5. The pipeline runs automatically: ingestion + dbt run
-
-The uploaded file is saved under the canonical name automatically — **no renaming needed**.
+4. Select the source, drop your file, click **Importer**
+5. The full pipeline runs automatically (ingestion + dbt)
 
 ### Option B — Via the command line
 
-Copy your exports to `data/raw/` using the canonical filenames:
-
-| App        | Expected filename          |
-| ---------- | -------------------------- |
-| MusicBuddy | `data/raw/musicbuddy.csv`  |
-| BookBuddy  | `data/raw/bookbuddy.csv`   |
-| Goodreads  | `data/raw/goodreads.csv`   |
-| MovieBuddy | `data/raw/moviebuddy.csv`  |
-| Letterboxd | `data/raw/letterboxd.csv`  |
-
 ```bash
-# Example: copy a MusicBuddy export
-cp ~/Downloads/MusicBuddy\ 2026-03-05\ 144228.csv data/raw/musicbuddy.csv
-```
+# Copy your export under the canonical filename
+cp ~/Downloads/MusicBuddy*.csv data/raw/musicbuddy.csv
 
-Then run the ingestion pipeline:
-
-```bash
-# Load all CSV files and API sources into the bronze layer
+# Run the full pipeline
 set -a && source .env && set +a
 python -m ingestion.run_ingestion
-
-# Rebuild silver and gold layers
-cd transform
-dbt run
-cd ..
+cd transform && dbt run && cd ..
 ```
 
-### Option C — Via the API directly
+Canonical filenames:
+
+| App        | Expected filename         |
+| ---------- | ------------------------- |
+| MusicBuddy | `data/raw/musicbuddy.csv` |
+| BookBuddy  | `data/raw/bookbuddy.csv`  |
+| Goodreads  | `data/raw/goodreads.csv`  |
+| MovieBuddy | `data/raw/moviebuddy.csv` |
+| Letterboxd | `data/raw/letterboxd.csv` |
+
+### Option C — Via the API
 
 ```bash
-# Upload a CSV file and trigger the full pipeline in one call
 curl -X POST http://localhost:8000/ingest/upload \
   -F "source=letterboxd" \
   -F "file=@/path/to/your/letterboxd.csv"
-
-# Check which sources have files present in data/raw/
-curl http://localhost:8000/ingest/sources
-
-# Trigger the pipeline without uploading (files must already be in data/raw/)
-curl -X POST http://localhost:8000/ingest/
 ```
 
-> ⚠️ The pipeline runs **synchronously**. Large datasets or slow API calls (Trakt has 300+ items) can take 1–2 minutes. The request will not return until the pipeline completes.
+> ⚠️ The pipeline runs synchronously and can take 1–2 minutes for large datasets.
+> Run uvicorn with `--workers 4` to avoid blocking other requests during ingestion.
 
 ---
 
 ## Running locally
 
-### Start the FastAPI backend
+### FastAPI backend
 
 ```bash
 set -a && source .env && set +a
-
-# Single worker (for development — API blocked during pipeline runs)
 uvicorn api.main:app --reload
-
-# Multiple workers (recommended when testing CSV upload)
+# or with multiple workers:
 uvicorn api.main:app --workers 4
 ```
 
-API available at `http://localhost:8000`. Interactive docs at `http://localhost:8000/docs`.
+API: `http://localhost:8000` · Docs: `http://localhost:8000/docs`
 
-### Start the Vue 3 frontend
+### Vue 3 frontend
 
 ```bash
-cd frontend
-npm run dev
+cd frontend && npm run dev
 ```
 
-Frontend available at `http://localhost:5173`. The Vite dev server proxies `/api/*` requests to `http://localhost:8000`.
+UI: `http://localhost:5173` (proxies `/api/*` to `:8000`)
 
-### Start the LangGraph agent (Chainlit)
+### LangGraph agent (Chainlit)
 
 ```bash
 set -a && source .env && set +a
 chainlit run agent/app.py
 ```
 
-Agent UI available at `http://localhost:8080`.
+Chat UI: `http://localhost:8080`
 
-### Start the Evidence.dev dashboard
+### Evidence.dev dashboard
 
 ```bash
-# Sync the warehouse file and start the dev server
-make dashboard-sync
-cd dashboard
-npm run dev
+make dashboard-sync   # copies warehouse.duckdb into dashboard/sources/
+cd dashboard && npm run dev
 ```
 
-Dashboard available at `http://localhost:3000`.
+Dashboard: `http://localhost:3000`
 
 ---
 
-## Full pipeline (command line)
+## Running with Docker
 
 ```bash
-# 1. Load all sources into bronze
-set -a && source .env && set +a
-python -m ingestion.run_ingestion
-
-# 2. Rebuild silver + gold
-cd transform
-dbt run
-
-# 3. Run schema tests
-dbt test
+cp .env.example .env   # fill in your values
+docker compose up
 ```
+
+| Service            | URL                     |
+| ------------------ | ----------------------- |
+| FastAPI            | `http://localhost:8000` |
+| Vue frontend       | `http://localhost:5173` |
+| Chainlit agent     | `http://localhost:8080` |
+| Evidence dashboard | `http://localhost:3000` |
 
 ---
 
 ## Project structure
 
-See [`STRUCTURE.md`](STRUCTURE.md) for the full annotated file tree.
+```
+tastebase/
+├── ingestion/       Python loaders (CSV + Spotify + Trakt → bronze)
+├── transform/       dbt-duckdb project (bronze → silver → gold)
+├── api/             FastAPI backend (single DuckDB access layer)
+├── frontend/        Vue 3 + Vite SPA
+├── agent/           LangGraph agent + Chainlit UI
+├── dashboard/       Evidence.dev read-only analytics
+├── data/
+│   ├── raw/         CSV exports (gitignored)
+│   └── warehouse.duckdb  (gitignored)
+└── docs/            Extended documentation
+```
 
-Key directories:
-
-| Path           | Purpose                                      |
-| -------------- | -------------------------------------------- |
-| `data/raw/`    | CSV exports (gitignored)                     |
-| `ingestion/`   | Python loaders: CSV + Spotify + Trakt        |
-| `transform/`   | dbt-duckdb project (bronze → silver → gold)  |
-| `api/`         | FastAPI backend                              |
-| `frontend/`    | Vue 3 + Vite SPA                             |
-| `agent/`       | LangGraph agent + Chainlit UI                |
-| `dashboard/`   | Evidence.dev analytics dashboard             |
+Full annotated tree: [`STRUCTURE.md`](STRUCTURE.md)
 
 ---
 
 ## Known limitations
 
-- **Anime detection:** MovieBuddy exports TMDB genres, which uses "Animation" not "Anime". The `stg_anime` model returns 0 rows until a better signal is implemented (see `DECISIONS.md` DEC-019).
-- **Spotify rate limiting:** The Spotify API enforces extended rate limits (~23h). When rate-limited, Spotify ingestion is skipped automatically with a warning log. Trakt and CSV sources are unaffected.
-- **Synchronous pipeline:** CSV upload triggers `run_ingestion.py` + `dbt run` synchronously. Other API requests queue behind it. Run uvicorn with `--workers 4` to avoid blocking the frontend during ingestion.
-- **User ratings on re-upload:** User ratings set via the UI are preserved across pipeline rebuilds (`mart_ratings` uses incremental materialization). See `DECISIONS.md` DEC-030.
+| Area                      | Description                                                                                                                        |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **Anime detection**       | MovieBuddy exports TMDB genres ("Animation", not "Anime"). `stg_anime` returns 0 rows until a better signal is added. See DEC-019. |
+| **Spotify rate limiting** | Spotify enforces ~23h extended rate limits. Ingestion skips Spotify gracefully when rate-limited; other sources are unaffected.    |
+| **Synchronous pipeline**  | CSV upload triggers the full pipeline synchronously. Run uvicorn with `--workers 4` to prevent blocking the frontend.              |
+| **User ratings**          | Ratings set via the UI survive `dbt run` rebuilds (`mart_ratings` uses incremental materialization). See DEC-030.                  |
+| **Hard delete**           | Deleting a dbt-managed item via the UI will cause it to reappear on the next pipeline run. By design — see DEC-029.                |
 
 ---
 
-## Development decisions
+## Documentation
 
-All architectural decisions are logged in [`DECISIONS.md`](DECISIONS.md).  
-The project roadmap is tracked in [`NEXT_STEPS.md`](NEXT_STEPS.md).
+| File                                             | Content                                        |
+| ------------------------------------------------ | ---------------------------------------------- |
+| [`STRUCTURE.md`](STRUCTURE.md)                   | Annotated folder/file tree                     |
+| [`DECISIONS.md`](DECISIONS.md)                   | Architectural decision log (DEC-001 → DEC-032) |
+| [`NEXT_STEPS.md`](NEXT_STEPS.md)                 | Project roadmap                                |
+| [`docs/data-sources.md`](docs/data-sources.md)   | Export instructions per app                    |
+| [`docs/csv-templates.md`](docs/csv-templates.md) | Template column reference                      |
+| [`docs/deployment.md`](docs/deployment.md)       | Coolify + Hetzner deployment guide             |
+| [`docs/contributing.md`](docs/contributing.md)   | How to contribute                              |
+
+---
+
+## Contributing
+
+Contributions, issues, and feature requests are welcome.
+See [`docs/contributing.md`](docs/contributing.md) for the full guide.
 
 ---
 
 ## License
 
-MIT
+[MIT](LICENSE)
