@@ -79,6 +79,20 @@
     "error_title_required": "Title is required",
     "error_year_range": "Year must be between 1800 and 2100"
   },
+  "upload": {
+    "title": "Import CSV",
+    "source_label": "Source",
+    "file_label": "CSV file",
+    "drop_hint": "Drop a CSV file here or click to browse",
+    "select_source_first": "Select a source first",
+    "file_present": "File already present in data/raw/",
+    "submit": "Import",
+    "uploading": "Importing…",
+    "success": "{filename} imported successfully",
+    "partial_failure": "Import finished with errors (see logs)",
+    "show_logs": "Show pipeline logs",
+    "upload_another": "Import another file"
+  },
   "rating": {
     "save_error": "Failed to save rating"
   },
@@ -95,6 +109,7 @@
     "retry": "Retry",
     "save": "Save",
     "cancel": "Cancel",
+    "done": "Close",
     "items": "item | items",
     "rated": "rated",
     "rating": "Rating",

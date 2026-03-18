@@ -79,6 +79,20 @@
     "error_title_required": "Le titre est obligatoire",
     "error_year_range": "L'année doit être entre 1800 et 2100"
   },
+  "upload": {
+    "title": "Importer un CSV",
+    "source_label": "Source",
+    "file_label": "Fichier CSV",
+    "drop_hint": "Glissez-déposez un fichier CSV ou cliquez pour choisir",
+    "select_source_first": "Sélectionnez d'abord une source",
+    "file_present": "Fichier déjà présent dans data/raw/",
+    "submit": "Importer",
+    "uploading": "Import en cours…",
+    "success": "{filename} importé avec succès",
+    "partial_failure": "Import terminé avec des erreurs (voir les logs)",
+    "show_logs": "Afficher les logs du pipeline",
+    "upload_another": "Importer un autre fichier"
+  },
   "rating": {
     "save_error": "Erreur lors de la sauvegarde"
   },
@@ -95,6 +109,7 @@
     "retry": "Réessayer",
     "save": "Enregistrer",
     "cancel": "Annuler",
+    "done": "Fermer",
     "items": "item | items",
     "rated": "noté | notés",
     "rating": "Note",

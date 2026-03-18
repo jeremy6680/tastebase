@@ -5,7 +5,7 @@ const apiClient = axios.create({
     // In dev, Vite proxies /api → http://localhost:8000
     // In production, set VITE_API_BASE_URL in .env
     baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
-    timeout: 10_000,
+    timeout: 30_000, // 30s — increased to handle slow /stats endpoints
     headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',

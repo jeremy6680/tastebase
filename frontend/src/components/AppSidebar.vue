@@ -1,4 +1,7 @@
 <template>
+  <!-- CSV upload modal — mounted once at sidebar level -->
+  <UploadModal v-model="uploadModalOpen" @ingestion-complete="onIngestionComplete" />
+
   <aside
     class="sidebar"
     :class="{ 'sidebar--collapsed': isCollapsed }"
@@ -59,8 +62,22 @@
       </RouterLink>
     </nav>
 
-    <!-- Bottom: language toggle + collapse -->
+    <!-- Bottom: import CSV + language toggle + collapse -->
     <div class="sidebar__footer">
+      <!-- Import CSV -->
+      <button
+        class="sidebar__link sidebar__link--action"
+        :title="isCollapsed ? $t('upload.title') : undefined"
+        @click="uploadModalOpen = true"
+      >
+        <span class="sidebar__link-icon">⬆</span>
+        <Transition name="fade">
+          <span v-if="!isCollapsed" class="sidebar__link-label">{{
+            $t('upload.title')
+          }}</span>
+        </Transition>
+      </button>
+
       <!-- Language toggle -->
       <button
         class="sidebar__link sidebar__link--action"
@@ -99,8 +116,22 @@
 import { ref, computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { DOMAINS } from "@/config/domains";
+import UploadModal from "@/components/UploadModal.vue";
 
 const { locale, t } = useI18n();
+
+// Upload modal visibility
+const uploadModalOpen = ref(false);
+
+/**
+ * Called when the pipeline completes after a CSV upload.
+ * Forces a page reload so counts and items refresh automatically.
+ */
+function onIngestionComplete() {
+  // A full reload is the simplest way to refresh all cached API data
+  // without wiring a global event bus. Acceptable for a personal tool.
+  window.location.reload();
+}
 
 // Sidebar collapsed state (persisted in localStorage)
 const isCollapsed = ref(
