@@ -5,6 +5,7 @@
     "build": "evidence build",
     "build:strict": "evidence build:strict",
     "dev": "evidence dev --open /",
+    "dev:prod": "evidence dev --host 0.0.0.0 --port 3000",
     "sources": "evidence sources",
     "sources:strict": "evidence sources --strict",
     "preview": "evidence preview"
