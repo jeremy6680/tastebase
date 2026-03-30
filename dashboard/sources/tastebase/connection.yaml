@@ -4,5 +4,5 @@
 name: tastebase
 type: duckdb
 options:
-  filename: warehouse.duckdb
+  filename: /app/data/warehouse.duckdb
   read_only: true

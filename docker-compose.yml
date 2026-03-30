@@ -100,9 +100,9 @@ services:
     expose:
       - "3000"
     volumes:
-      # Mount the warehouse directly into the Evidence source directory.
-      # This eliminates the need for `make dashboard-sync` in Docker (DEC-025).
-      - duckdb_data:/app/dashboard/sources/tastebase
+      # Mount the named volume at the API's data path for reference,
+      # and expose the warehouse file directly into Evidence's source directory.
+      - duckdb_data:/app/data
     depends_on:
       api:
         condition: service_healthy
