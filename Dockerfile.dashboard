@@ -2,16 +2,13 @@
 # TasteBase — Dockerfile.dashboard
 #
 # Evidence.dev static dashboard service.
-# Built on Node 20 LTS (slim). Serves the Evidence dev server in development
-# and a static build via `npm run build` + `npm run preview` in production.
+# Built on Node 20 LTS (slim). Serves the Evidence dev server.
 #
 # DuckDB constraint (DEC-025):
 #   The .duckdb file must be physically present in sources/tastebase/.
-#   In docker-compose, the duckdb_data volume is mounted directly at
-#   /app/dashboard/sources/tastebase/ — no copy step required.
-#
-# Required environment variables at runtime:
-#   (none — Evidence reads DuckDB directly from the mounted volume)
+#   The duckdb_data volume is mounted at sources/tastebase/ in docker-compose,
+#   which overwrites the directory content including connection.yaml.
+#   The entrypoint script restores connection.yaml after the volume is mounted.
 # =============================================================================
 
 FROM node:20-slim AS base
@@ -22,11 +19,14 @@ COPY dashboard/package*.json ./
 RUN npm ci --prefer-offline
 COPY dashboard/ .
 
+# Store connection.yaml in a safe location outside the mounted volume.
+# The entrypoint will copy it back after the volume mount overwrites the directory.
+RUN cp sources/tastebase/connection.yaml /connection.yaml.bak
+
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
-# Generate source manifest before starting the dev server.
-# The DuckDB volume must be mounted at sources/tastebase/ for this to work.
-CMD ["sh", "-c", "npm run sources && npm run dev:prod"]
+# Entrypoint: restore connection.yaml (overwritten by volume mount), then start.
+CMD ["sh", "-c", "cp /connection.yaml.bak sources/tastebase/connection.yaml && npm run sources && npm run dev:prod"]
