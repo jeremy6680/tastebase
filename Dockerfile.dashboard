@@ -18,22 +18,15 @@ FROM node:20-slim AS base
 
 WORKDIR /app/dashboard
 
-# Copy package manifests first to leverage Docker layer caching.
-# npm install only re-runs when package.json or package-lock.json change.
 COPY dashboard/package*.json ./
-
 RUN npm ci --prefer-offline
-
-# Copy Evidence pages and source configuration
 COPY dashboard/ .
 
-# Expose Evidence dev server port
 EXPOSE 3000
 
-# Health check: polls the Evidence dev server root
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
-# Use dev:prod script which passes --host 0.0.0.0 to bypass Vite's
-# allowedHosts restriction when running behind a reverse proxy (DEC-025).
-CMD ["npm", "run", "dev:prod"]
+# Generate source manifest before starting the dev server.
+# The DuckDB volume must be mounted at sources/tastebase/ for this to work.
+CMD ["sh", "-c", "npm run sources && npm run dev:prod"]
