@@ -19,11 +19,13 @@ COPY dashboard/package*.json ./
 RUN npm ci --prefer-offline
 COPY dashboard/ .
 
-RUN cp sources/tastebase/connection.yaml /connection.yaml.bak
-
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
-CMD ["sh", "-c", "cp /connection.yaml.bak sources/tastebase/connection.yaml && npm run sources && npm run dev:prod"]
+# Copy warehouse from the shared volume into Evidence's source directory,
+# then run sources and start the dev server.
+# This avoids the DuckDB lock conflict caused by sharing the same file
+# between the API writer and the Evidence reader (DEC-025).
+CMD ["sh", "-c", "cp /app/data/warehouse.duckdb sources/tastebase/warehouse.duckdb && npm run sources && npm run dev:prod"]

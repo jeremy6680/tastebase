@@ -100,7 +100,7 @@ services:
     expose:
       - "3000"
     volumes:
-      - duckdb_data:/app/dashboard/sources/tastebase
+      - duckdb_data:/app/data:ro
     depends_on:
       api:
         condition: service_healthy
