@@ -9,6 +9,11 @@
 # Volumes:
 #   duckdb_data  Named volume for warehouse.duckdb — shared across services
 #
+# Note on ports:
+#   `expose:` (not `ports:`) is used in production. Coolify's reverse proxy
+#   handles external routing — no host port binding is needed or desired.
+#   For local development, replace `expose:` with `ports:` as needed.
+#
 # Quick start:
 #   cp .env.example .env   # fill in your API keys
 #   docker compose up --build
@@ -30,8 +35,8 @@ services:
       --host 0.0.0.0
       --port 8000
       --workers 4
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     volumes:
       # Named volume: warehouse.duckdb persists across container restarts
       - duckdb_data:/app/data
@@ -69,8 +74,8 @@ services:
       dockerfile: Dockerfile
       target: runtime
     command: chainlit run agent/app.py --host 0.0.0.0 --port 8080
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
     environment:
       # Agent calls FastAPI via internal Docker network — not localhost
       API_BASE_URL: http://api:8000
@@ -92,8 +97,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dashboard
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     volumes:
       # Mount the warehouse directly into the Evidence source directory.
       # This eliminates the need for `make dashboard-sync` in Docker (DEC-025).
