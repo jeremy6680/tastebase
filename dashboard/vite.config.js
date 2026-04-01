@@ -2,10 +2,9 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   server: {
-    // Allow all hosts — required for Coolify reverse proxy
+    host: true, // or '0.0.0.0'
     allowedHosts: [
-      'tastebase.web2data.org',
-      'localhost'
+      'tastebase.web2data.org'
     ],
   },
 });
