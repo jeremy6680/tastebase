@@ -169,11 +169,13 @@ where bronze tables are out of sync with silver/gold. The canonical filename req
 
 **Context:** During ingestion triggered by `POST /ingest/upload`, the Spotify client
 blocked the entire uvicorn worker indefinitely because:
+
 1. `httpx` calls had no timeout configured.
 2. The `Retry-After` header from a 429 response was 83,000+ seconds (~23 hours),
    and the code called `time.sleep(retry_after)` unconditionally.
 
 **Decision:**
+
 - Add `timeout=30` to all `httpx.get` and `httpx.post` calls in `SpotifyClient` and
   `TraktClient`.
 - In `SpotifyClient._get()`: if `Retry-After > 60`, raise `HTTPStatusError` immediately
@@ -651,6 +653,7 @@ The genre taxonomy is user-defined (not derivable from source data) and must sur
 `POST /items/{item_id}/category`.
 
 **Schema:**
+
 ```sql
 item_id    VARCHAR PRIMARY KEY
 domain     VARCHAR NOT NULL
@@ -687,6 +690,7 @@ modern Vue development.
 and SCSS (sass) for styling. No component library — custom design system via SCSS tokens.
 
 **Key conventions:**
+
 - `additionalData` in `vite.config.js` injects `_variables.scss` into every `<style lang="scss">` block via `import.meta.url` (ESM-compatible, avoids `__dirname`)
 - All domain metadata (color, icon, route) centralised in `config/domains.js`
 - All category taxonomy centralised in `config/categories.js`
@@ -695,6 +699,33 @@ and SCSS (sass) for styling. No component library — custom design system via S
 **Rationale:** Vue 3 provides the right balance of power and simplicity for this
 project size. The Composition API maps cleanly to the filter/pagination/selection
 state patterns needed. Vite's HMR makes the development loop fast.
+
+---
+
+### DEC-029 — Hard delete for manually created items
+
+**Date:** Mar, 2026
+**Status:** Accepted
+
+**Context:** Users need to remove items they created manually via the UI. A soft-delete
+(deleted_at flag) was originally planned but deferred.
+
+**Options considered:**
+
+- Soft delete (`deleted_at` column): preserves history, more complex queries needed
+  everywhere to filter out deleted items.
+- Hard delete: simple, immediate, no schema change needed. Correct for user-created items.
+
+**Decision:** Hard delete via `DELETE /items/{item_id}`. Removes from `mart_unified_tastes`,
+`mart_ratings`, `mart_rating_events`, and `mart_item_categories` in dependency order.
+
+**Caveat:** dbt-managed items (source ≠ 'manual') will reappear on the next `dbt run`.
+The API does not enforce source restriction — this is documented behaviour, not a bug.
+The UI confirmation dialog makes the consequence clear to the user.
+
+**Rationale:** Hard delete is appropriate for personal-scale data where the user
+has full control. Soft delete adds query complexity everywhere with little benefit
+for a single-user application. The pipeline rebuild caveat is acceptable.
 
 ---
 
@@ -732,6 +763,7 @@ content blocks (`[{"type": "text", "text": "..."}]`) rather than a plain string,
 causing Chainlit's JS layer to throw `t.trim is not a function`.
 
 **Decision:**
+
 - Disable token streaming entirely.
 - Listen to `on_chain_end` events for the `call_model` node.
 - Extract the last `AIMessage` without `tool_calls` as the final answer.
@@ -746,27 +778,43 @@ feedback during processing.
 
 ---
 
-### DEC-029 — Hard delete for manually created items
+### DEC-035 — Evidence.dev removed; Coolify split into two independent apps
 
-**Date:** Mar, 2026
+**Date:** 2026-04-27
 **Status:** Accepted
 
-**Context:** Users need to remove items they created manually via the UI. A soft-delete
-(deleted_at flag) was originally planned but deferred.
+**Context:** Evidence.dev required a physical DuckDB file to be present at
+build/runtime inside the container, creating a fragile dependency on the
+duckdb_data volume. If the API had not yet written the file, the dashboard
+container crashed at startup. Deploying all three services in a single Coolify
+app caused cascading health check failures: one failing service blocked Traefik
+routing for all others.
 
 **Options considered:**
 
-- Soft delete (`deleted_at` column): preserves history, more complex queries needed
-  everywhere to filter out deleted items.
-- Hard delete: simple, immediate, no schema change needed. Correct for user-created items.
+- Keep Evidence.dev and fix the volume-mount timing with an entrypoint script:
+  fragile, adds complexity, root cause remains.
+- Replace with Metabase: no reliable DuckDB driver, adds a Java container.
+- Replace with Superset/Redash: heavy infrastructure (Redis, Celery), overkill
+  for personal scale.
+- Integrate visualisations into the existing Vue 3 frontend (Chart.js): zero
+  extra services, consistent design, deployable as a static site on Netlify.
 
-**Decision:** Hard delete via `DELETE /items/{item_id}`. Removes from `mart_unified_tastes`,
-`mart_ratings`, `mart_rating_events`, and `mart_item_categories` in dependency order.
+**Decision:**
 
-**Caveat:** dbt-managed items (source ≠ 'manual') will reappear on the next `dbt run`.
-The API does not enforce source restriction — this is documented behaviour, not a bug.
-The UI confirmation dialog makes the consequence clear to the user.
+1. Evidence.dev is removed. Dashboard visualisations are integrated into the
+   Vue 3 frontend as an Insights section using Chart.js, consuming existing
+   FastAPI /stats/\* endpoints.
+2. Coolify deployment is split into two independent applications:
+   - tastebase-api → docker/api/docker-compose.yml (FastAPI + DuckDB volume)
+   - tastebase-agent → docker/agent/docker-compose.yml (Chainlit, no volume)
+3. The Vue 3 frontend is deployed on Netlify as a static build.
+4. The root docker-compose.yml is kept for local development only (2 services,
+   ports: instead of expose:).
 
-**Rationale:** Hard delete is appropriate for personal-scale data where the user
-has full control. Soft delete adds query complexity everywhere with little benefit
-for a single-user application. The pipeline rebuild caveat is acceptable.
+**Rationale:** Removing Evidence.dev eliminates the volume-timing problem.
+Splitting into two Coolify apps means each service has its own health check,
+restart policy, and deploy cycle — a failing agent no longer blocks the API.
+Netlify handles TLS, CDN, and deploys automatically on push for the frontend.
+
+---
