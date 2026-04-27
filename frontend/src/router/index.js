@@ -1,7 +1,6 @@
 // src/router/index.js — Vue Router configuration
 import { createRouter, createWebHistory } from 'vue-router'
 
-// Lazy-loaded views for better initial load performance
 const HomeView = () => import('@/views/HomeView.vue')
 const MusicView = () => import('@/views/MusicView.vue')
 const BooksView = () => import('@/views/BooksView.vue')
@@ -9,6 +8,7 @@ const MangaView = () => import('@/views/MangaView.vue')
 const MoviesView = () => import('@/views/MoviesView.vue')
 const SeriesView = () => import('@/views/SeriesView.vue')
 const AnimeView = () => import('@/views/AnimeView.vue')
+const InsightsView = () => import('@/views/InsightsView.vue')
 
 const routes = [
     {
@@ -53,19 +53,23 @@ const routes = [
         component: AnimeView,
         meta: { title: 'Anime', domain: 'anime' },
     },
+    {
+        path: '/insights',
+        name: 'insights',
+        component: InsightsView,
+        meta: { title: 'Insights' },
+    },
 ]
 
 const router = createRouter({
     history: createWebHistory(import.meta.env.BASE_URL),
     routes,
     scrollBehavior(to, from, savedPosition) {
-        // Restore scroll position on back navigation
         if (savedPosition) return savedPosition
         return { top: 0, behavior: 'smooth' }
     },
 })
 
-// Update document title on each navigation
 router.afterEach((to) => {
     document.title = to.meta.title
         ? `${to.meta.title} — TasteBase`

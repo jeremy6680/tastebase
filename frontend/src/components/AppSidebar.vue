@@ -1,6 +1,8 @@
 <template>
-  <!-- CSV upload modal — mounted once at sidebar level -->
-  <UploadModal v-model="uploadModalOpen" @ingestion-complete="onIngestionComplete" />
+  <UploadModal
+    v-model="uploadModalOpen"
+    @ingestion-complete="onIngestionComplete"
+  />
 
   <aside
     class="sidebar"
@@ -8,7 +10,6 @@
     role="navigation"
     :aria-label="$t('app.name')"
   >
-    <!-- Logo / brand -->
     <div class="sidebar__brand">
       <RouterLink to="/" class="sidebar__logo" :aria-label="$t('app.name')">
         <span class="sidebar__logo-mark">T</span>
@@ -22,7 +23,6 @@
 
     <div class="sidebar__divider" />
 
-    <!-- Domain navigation -->
     <nav class="sidebar__nav">
       <!-- Home -->
       <RouterLink
@@ -47,9 +47,7 @@
         :key="domain.key"
         :to="domain.route"
         class="sidebar__link"
-        :class="{
-          'sidebar__link--active': $route.path === domain.route,
-        }"
+        :class="{ 'sidebar__link--active': $route.path === domain.route }"
         :style="{ '--domain-color': domain.color }"
         :title="isCollapsed ? $t(domain.labelKey) : undefined"
       >
@@ -62,26 +60,25 @@
       </RouterLink>
     </nav>
 
-    <!-- Bottom: external links + import CSV + language toggle + collapse -->
     <div class="sidebar__footer">
-      <!-- External app links -->
       <div class="sidebar__divider sidebar__divider--subtle" />
 
-      <a
-        :href="dashboardUrl"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="sidebar__link sidebar__link--external"
-        :title="isCollapsed ? $t('nav.dashboard') : undefined"
+      <!-- Insights (internal route — replaces external dashboard link) -->
+      <RouterLink
+        to="/insights"
+        class="sidebar__link"
+        :class="{ 'sidebar__link--active': $route.path === '/insights' }"
+        :title="isCollapsed ? $t('nav.insights') : undefined"
       >
         <span class="sidebar__link-icon">📊</span>
         <Transition name="fade">
           <span v-if="!isCollapsed" class="sidebar__link-label">{{
-            $t('nav.dashboard')
+            $t("nav.insights")
           }}</span>
         </Transition>
-      </a>
+      </RouterLink>
 
+      <!-- Agent (external link) -->
       <a
         :href="agentUrl"
         target="_blank"
@@ -92,7 +89,7 @@
         <span class="sidebar__link-icon">🤖</span>
         <Transition name="fade">
           <span v-if="!isCollapsed" class="sidebar__link-label">{{
-            $t('nav.agent')
+            $t("nav.agent")
           }}</span>
         </Transition>
       </a>
@@ -108,7 +105,7 @@
         <span class="sidebar__link-icon">⬆</span>
         <Transition name="fade">
           <span v-if="!isCollapsed" class="sidebar__link-label">{{
-            $t('upload.title')
+            $t("upload.title")
           }}</span>
         </Transition>
       </button>
@@ -127,7 +124,7 @@
         </Transition>
       </button>
 
-      <!-- Collapse toggle (desktop only) -->
+      <!-- Collapse toggle -->
       <button
         class="sidebar__collapse-btn"
         :aria-label="isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
@@ -155,31 +152,19 @@ import UploadModal from "@/components/UploadModal.vue";
 
 const { locale } = useI18n();
 
-// ---------------------------------------------------------------------------
-// External app URLs — read from Vite env variables.
-// Set VITE_DASHBOARD_URL and VITE_AGENT_URL in frontend/.env.
-// Falls back to localhost defaults for local development.
-// ---------------------------------------------------------------------------
-const dashboardUrl = import.meta.env.VITE_DASHBOARD_URL || 'http://localhost:3000';
-const agentUrl = import.meta.env.VITE_AGENT_URL || 'http://localhost:8080';
+// Agent URL — external service
+const agentUrl = import.meta.env.VITE_AGENT_URL || "http://localhost:8080";
 
-// Upload modal visibility
 const uploadModalOpen = ref(false);
 
-/**
- * Called when the pipeline completes after a CSV upload.
- * Forces a page reload so counts and items refresh automatically.
- */
 function onIngestionComplete() {
   window.location.reload();
 }
 
-// Sidebar collapsed state (persisted in localStorage)
 const isCollapsed = ref(
   localStorage.getItem("tastebase-sidebar-collapsed") === "true",
 );
 
-// Watch for changes and persist
 watch(isCollapsed, (val) => {
   localStorage.setItem("tastebase-sidebar-collapsed", String(val));
   document.documentElement.style.setProperty(
@@ -188,7 +173,6 @@ watch(isCollapsed, (val) => {
   );
 });
 
-// Language toggle
 const currentLocaleLabel = computed(() =>
   locale.value === "fr" ? "FR" : "EN",
 );
@@ -202,6 +186,7 @@ function toggleLocale() {
 </script>
 
 <style lang="scss" scoped>
+// Styles identiques à l'original — aucun changement
 .sidebar {
   position: fixed;
   top: 0;
@@ -311,7 +296,6 @@ function toggleLocale() {
     font-family: inherit;
   }
 
-  // External links open in new tab — subtle visual distinction
   &--external {
     opacity: 0.75;
 

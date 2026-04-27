@@ -26,8 +26,31 @@ export function fetchRecent(limit = 10) {
  * Fetch the taste profile (top genres, creators, decades).
  * Maps to GET /stats/taste-profile on the FastAPI backend.
  *
- * @returns {Promise<Object>} taste profile aggregate data
+ * @returns {Promise<Object>} raw profile rows grouped by stat_type
  */
 export function fetchTasteProfile() {
     return client.get('/stats/taste-profile')
+}
+
+/**
+ * Parse the raw taste profile response into typed buckets.
+ * The API returns { profile: [{ stat_type, dimension, sub_dimension,
+ * value_int, value_float, details }, ...] }.
+ *
+ * @param {Object} raw - Raw response from fetchTasteProfile()
+ * @returns {{
+ *   domainStats: Object[],
+ *   topGenres: Object[],
+ *   topCreators: Object[],
+ *   decades: Object[]
+ * }}
+ */
+export function parseTasteProfile(raw) {
+    const rows = raw?.profile ?? []
+    return {
+        domainStats: rows.filter(r => r.stat_type === 'domain_stats'),
+        topGenres: rows.filter(r => r.stat_type === 'top_genre'),
+        topCreators: rows.filter(r => r.stat_type === 'top_creator'),
+        decades: rows.filter(r => r.stat_type === 'decade'),
+    }
 }
