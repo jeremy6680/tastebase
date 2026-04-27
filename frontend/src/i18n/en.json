@@ -11,7 +11,7 @@
     "movies": "Movies",
     "series": "Series",
     "anime": "Anime",
-    "dashboard": "Dashboard",
+    "insights": "Insights",
     "agent": "AI Agent"
   },
   "home": {
@@ -130,5 +130,14 @@
   "language": {
     "fr": "Français",
     "en": "English"
+  },
+  "insights": {
+    "title": "Insights",
+    "subtitle": "Statistics and trends across your tastes",
+    "domain_breakdown": "Breakdown by domain",
+    "rating_distribution": "Rating distribution",
+    "decades": "By decade",
+    "top_creators": "Top creators",
+    "items_count": "Number of works"
   }
 }
