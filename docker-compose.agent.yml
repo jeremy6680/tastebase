@@ -5,16 +5,16 @@
 #   - Build Pack: Docker Compose
 #   - Repository: your repo URL
 #   - Branch: main
-#   - Docker Compose file path: docker/agent/docker-compose.yml
+#   - Docker Compose file path: docker-compose.agent.yml
 #
 # Required env var in Coolify:
-#   API_BASE_URL — public URL of the deployed API (e.g. https://api.tastebase.web2data.org)
+#   API_BASE_URL=https://api.tastebase.web2data.org
 # =============================================================================
 
 services:
   agent:
     build:
-      context: ../..
+      context: .
       dockerfile: Dockerfile
       target: runtime
     command: chainlit run agent/app.py --host 0.0.0.0 --port 8080

@@ -5,16 +5,13 @@
 #   - Build Pack: Docker Compose
 #   - Repository: your repo URL
 #   - Branch: main
-#   - Docker Compose file path: docker/api/docker-compose.yml
-#
-# Coolify always uses the repo root as the build context, regardless of
-# where the compose file lives — so context: . works correctly here.
+#   - Docker Compose file path: docker-compose.api.yml
 # =============================================================================
 
 services:
   api:
     build:
-      context: ../..
+      context: .
       dockerfile: Dockerfile
       target: runtime
     command: >
