@@ -1,0 +1,52 @@
+# =============================================================================
+# TasteBase — Coolify deployment: API service
+#
+# Deploy this as a standalone app in Coolify:
+#   - Build Pack: Docker Compose
+#   - Repository: your repo URL
+#   - Branch: main
+#   - Docker Compose file path: docker/api/docker-compose.yml
+#
+# Coolify always uses the repo root as the build context, regardless of
+# where the compose file lives — so context: . works correctly here.
+# =============================================================================
+
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: runtime
+    command: >
+      uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 1
+    expose:
+      - "8000"
+    volumes:
+      - duckdb_data:/app/data
+      - duckdb_raw:/app/data/raw
+      - duckdb_transform:/app/transform
+    environment:
+      DUCKDB_PATH: /app/data/warehouse.duckdb
+      APP_ENV: production
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request;
+            urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  duckdb_data:
+    driver: local
+  duckdb_raw:
+    driver: local
+  duckdb_transform:
+    driver: local

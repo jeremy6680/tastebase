@@ -1,0 +1,26 @@
+# =============================================================================
+# TasteBase — Coolify deployment: Agent service (Chainlit + LangGraph)
+#
+# Deploy this as a standalone app in Coolify:
+#   - Build Pack: Docker Compose
+#   - Repository: your repo URL
+#   - Branch: main
+#   - Docker Compose file path: docker/agent/docker-compose.yml
+#
+# Required env var in Coolify:
+#   API_BASE_URL — public URL of the deployed API (e.g. https://api.tastebase.web2data.org)
+# =============================================================================
+
+services:
+  agent:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: runtime
+    command: chainlit run agent/app.py --host 0.0.0.0 --port 8080
+    expose:
+      - "8080"
+    environment:
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:8000}
+      APP_ENV: production
+    restart: unless-stopped

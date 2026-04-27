@@ -1,27 +1,18 @@
 # =============================================================================
 # TasteBase — .dockerignore
-# Excludes files and directories that should not be sent to the Docker daemon.
-# Keeps the build context lean and prevents secrets from leaking into images.
 # =============================================================================
 
-# -----------------------------------------------------------------------------
-# Secrets and local config — never bake into an image
-# -----------------------------------------------------------------------------
+# Secrets
 .env
 .env.local
 .env.*.local
 
-# -----------------------------------------------------------------------------
-# User data — mounted as volumes at runtime, not baked into images
-# -----------------------------------------------------------------------------
+# User data — mounted as volumes at runtime
 data/raw/
 data/warehouse.duckdb
 data/warehouse.duckdb.wal
-dashboard/sources/tastebase/warehouse.duckdb
 
-# -----------------------------------------------------------------------------
-# Python virtual environment and caches
-# -----------------------------------------------------------------------------
+# Python
 .venv/
 venv/
 env/
@@ -44,37 +35,29 @@ htmlcov/
 dmypy.json
 .ruff_cache/
 
-# -----------------------------------------------------------------------------
-# dbt artifacts (generated at runtime)
-# -----------------------------------------------------------------------------
+# dbt artifacts
 transform/target/
 transform/logs/
 transform/.user.yml
 transform/dbt_packages/
 .dbt/
 
-# -----------------------------------------------------------------------------
-# Node / frontend build artifacts
-# -----------------------------------------------------------------------------
+# Node / frontend
 node_modules/
 frontend/node_modules/
-dashboard/node_modules/
-dashboard/.evidence/
-dashboard/.svelte-kit/
-dashboard/build/
+frontend/dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .npm
 
-# -----------------------------------------------------------------------------
-# Chainlit session data
-# -----------------------------------------------------------------------------
+# Chainlit
 .chainlit/
 
-# -----------------------------------------------------------------------------
-# Editors and OS artifacts
-# -----------------------------------------------------------------------------
+# Dashboard — Evidence.dev removed (replaced by Vue Insights pages)
+dashboard/
+
+# Editors and OS
 .vscode/
 *.code-workspace
 .idea/
@@ -91,14 +74,10 @@ Desktop.ini
 $RECYCLE.BIN/
 *~
 
-# -----------------------------------------------------------------------------
-# Logs and test output
-# -----------------------------------------------------------------------------
+# Logs
 *.log
 logs/
 
-# -----------------------------------------------------------------------------
-# Git history — not needed inside the image
-# -----------------------------------------------------------------------------
+# Git
 .git/
 .gitignore
