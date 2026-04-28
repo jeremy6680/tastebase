@@ -1,0 +1,15 @@
+# =============================================================================
+# TasteBase — Netlify configuration (Vue 3 / Vite frontend)
+# =============================================================================
+
+[build]
+  # Netlify runs the build from the repo root — specify the frontend subdirectory
+  base    = "frontend"
+  command = "npm run build"
+  publish = "dist"
+
+# SPA routing — redirect all routes to index.html so Vue Router handles them
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
