@@ -105,11 +105,18 @@ def create_app() -> FastAPI:
 
     # CORS — allow all origins in development, restrict in production
     app_env = os.getenv("APP_ENV", "development")
-    allowed_origins = (
-        ["*"]
-        if app_env == "development"
-        else [os.getenv("FRONTEND_URL", "http://localhost:3000")]
-    )
+
+    if app_env == "development":
+        allowed_origins = ["*"]
+    else:
+        # Comma-separated list of allowed origins in production
+        frontend_url = os.getenv("FRONTEND_URL", "")
+        agent_url = os.getenv("TASTEBASE_AGENT_URL", "")
+        allowed_origins = [
+            origin.strip()
+            for origin in [frontend_url, agent_url]
+            if origin.strip()
+        ]
 
     app.add_middleware(
         CORSMiddleware,
