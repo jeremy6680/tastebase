@@ -101,6 +101,8 @@ def upsert_category(
     payload: CategoryUpsert,
     db: duckdb.DuckDBPyConnection = Depends(get_db_write),
 ) -> Category:
+    # Ensure the satellite table exists (lazy creation — avoids lifespan lock conflict)
+    ensure_table(db)
     """Set or replace the genre/sub_genre for a taste item.
 
     Uses INSERT OR REPLACE semantics — if a category already exists for
@@ -158,6 +160,7 @@ def batch_upsert_categories(
     payload: CategoryBatch,
     db: duckdb.DuckDBPyConnection = Depends(get_db_write),
 ) -> list[Category]:
+    ensure_table(db)
     """Apply the same genre/sub_genre to multiple items in one request.
 
     Items that do not exist in mart_unified_tastes are silently skipped.
