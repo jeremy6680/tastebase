@@ -6,110 +6,137 @@
 
 ---
 
+## Infrastructure & deployment
+
+### DEC-039 — Ingestion writes to tmp/warehouse.duckdb to preserve dbt catalog name
+
+**Date:** 2026-04-28
+**Status:** Accepted
+
+**Context:** dbt-duckdb derives the catalog name from the database file stem. Using
+`warehouse.duckdb.tmp` as the temp path caused dbt to fail with `Catalog "warehouse.duckdb"
+does not exist!` — the stem `warehouse.duckdb` does not match the `warehouse` catalog
+expected by the models.
+
+**Decision:** The ingestion process writes to `data/tmp/warehouse.duckdb` — a subdirectory
+with the same filename. This preserves the `warehouse` catalog name. On success,
+`data/tmp/warehouse.duckdb` atomically replaces `data/warehouse.duckdb` via `shutil.move`.
+The `tmp/` directory is created automatically; its contents are gitignored.
+
+**Rationale:** Keeping the same filename stem in a subdirectory is the minimal change that
+satisfies both constraints: isolation from the API's live database, and catalog name
+compatibility with dbt models.
+
+---
+
+### DEC-038 — Ingestion uses a temporary database to avoid DuckDB write lock
+
+**Date:** 2026-04-28
+**Status:** Accepted
+
+**Context:** The API process (uvicorn, PID 1 in Docker) holds a DuckDB write lock on
+`warehouse.duckdb` from startup. When `POST /ingest/upload` triggers a subprocess to run
+`run_ingestion.py`, the subprocess tries to open the same file in write mode. DuckDB's
+single-writer constraint causes `IO Error: Could not set lock on file`.
+
+**Decision:** The ingestion pipeline writes to a completely separate file
+(`data/tmp/warehouse.duckdb`, see DEC-039). The API never touches the tmp file. On success,
+the tmp file replaces the main database via `shutil.move`. The API's read-only connections
+to `warehouse.duckdb` are never blocked.
+
+**Rationale:** DuckDB's single-writer model is a hard constraint. Writing to a separate
+file is the only approach that eliminates lock conflicts entirely.
+
+---
+
+### DEC-037 — get_db() uses read_only=True; get_db_write() for write endpoints
+
+**Date:** 2026-04-28
+**Status:** Accepted
+
+**Context:** `api/dependencies.py` originally opened all connections in `read_only=False`.
+This held an exclusive write lock during every request, blocking the ingestion subprocess.
+
+**Decision:** Split into two dependency functions:
+
+- `get_db()` → `read_only=True` — used by all GET endpoints
+- `get_db_write()` → `read_only=False` — used only by `upsert_rating`, `upsert_category`,
+  `batch_upsert_categories`
+
+**Rationale:** Read-only connections release the write lock entirely. The split follows
+the principle of least privilege.
+
+---
+
+### DEC-036 — API lifespan skips ensure_table when warehouse.duckdb does not exist
+
+**Date:** 2026-04-28
+**Status:** Accepted
+
+**Context:** On fresh deployments, `warehouse.duckdb` does not yet exist. The lifespan
+hook opening a write connection created the file and registered PID 1 as write lock owner,
+blocking the first ingestion run.
+
+**Decision:** `ensure_table` is guarded by `os.path.exists(db_path)`. Skipped on first
+boot; runs normally on subsequent API restarts once data exists.
+
+---
+
 ## Data architecture
 
 ### DEC-001 — DuckDB over PostgreSQL
 
-**Date:** Feb, 2026  
+**Date:** Feb, 2026
 **Status:** Accepted
 
-**Context:** The project needs a database for personal-scale data (thousands of items, not millions). It runs on a single VPS and must be portable and easy to back up.
-
-**Options considered:**
-
-- PostgreSQL: robust, widely supported, requires a running server process
-- SQLite: simpler, but weak analytical SQL support (no `ARRAY`, limited window functions)
-- DuckDB: serverless, single-file, full analytical SQL, native Python integration
-
-**Decision:** DuckDB.
-
-**Rationale:** Zero infrastructure overhead, single file backup, excellent analytical SQL (window functions, `LIST_AGG`, `ARRAY`, `STRUCT`), native Python and dbt integration. Perfectly sized for personal data volume.
+**Decision:** DuckDB — zero infrastructure, single-file, analytical SQL, native Python/dbt integration.
 
 ---
 
 ### DEC-002 — Medallion architecture (bronze / silver / gold)
 
-**Date:** Feb, 2026  
+**Date:** Feb, 2026
 **Status:** Accepted
 
-**Context:** Data comes from heterogeneous sources with different schemas, rating scales, and domain signals. Transformations need to be traceable and testable.
-
-**Options considered:**
-
-- Single flat table: simple but unmaintainable
-- Two layers (raw + clean): adequate but no separation between dedup/normalization and analytical marts
-- Three layers (bronze / silver / gold): standard analytics engineering pattern
-
-**Decision:** Three-layer medallion via dbt-duckdb.
-
-**Rationale:** Bronze keeps raw data immutable (audit trail). Silver normalizes and deduplicates. Gold exposes clean marts for the agent and dashboard. Each layer is independently testable and versioned in SQL.
+**Decision:** Three-layer medallion via dbt-duckdb. Bronze = immutable raw. Silver = normalized + deduplicated. Gold = analytical marts.
 
 ---
 
 ### DEC-003 — Deduplication at the silver layer, not bronze
 
-**Date:** Feb, 2026  
+**Date:** Feb, 2026
 **Status:** Accepted
 
-**Context:** The same item (e.g. an album) can appear in multiple sources (MusicBuddy + Spotify). Deduplication must happen somewhere.
-
-**Decision:** Deduplicate in silver (`stg_` models), using canonical IDs (ISBN13, IMDB ID, Discogs ID) as the primary join key.
-
-**Rationale:** Bronze stays as an immutable raw log. Deduplication logic lives in version-controlled, testable SQL. If the logic changes, bronze data is unaffected and silver can be rebuilt from scratch.
+**Decision:** Deduplicate in silver (`stg_` models) using canonical IDs (ISBN13, IMDB ID, Discogs ID).
 
 ---
 
 ### DEC-004 — Unified 1–5 integer rating scale
 
-**Date:** Feb, 2026  
+**Date:** Feb, 2026
 **Status:** Accepted
 
-**Context:** Sources use different rating scales:
+**Decision:** Normalize all ratings to integer 1–5 at silver. `NULL` for unrated (never 0).
 
-- MusicBuddy / BookBuddy / MovieBuddy: float 0.0–5.0
-- Goodreads: integer 0–5
-- Letterboxd: float 0.5–5.0 by 0.5 increments
-- Trakt.tv: integer 1–10
-
-**Decision:** Normalize all ratings to integer 1–5 at the silver layer. Store `NULL` for unrated items (never `0`).
-
-**Conversion rules:**
-
-- Float 0.0–5.0 → `ROUND()`, then `NULL` if result = 0
-- Letterboxd 0.5–5.0 → `ROUND()` to nearest integer
-- Trakt 1–10 → `CEIL(rating / 2.0)`
-
-**Rationale:** A single scale enables cross-domain comparison and simplifies the agent's reasoning. Rounding is applied only once, at silver, and never again downstream.
+Conversion: float 0–5 → `ROUND()`, Letterboxd → `ROUND()`, Trakt 1–10 → `CEIL(rating/2.0)`.
 
 ---
 
 ### DEC-005 — MusicBuddy as the primary music source
 
-**Date:** Feb, 2026  
+**Date:** Feb, 2026
 **Status:** Accepted
 
-**Context:** Both MusicBuddy (CSV) and Spotify (API) provide music data. They must be merged without losing user ratings.
-
-**Decision:** MusicBuddy CSV is the primary music source. Spotify is enrichment-only (cover art, Spotify ID, play counts). Ratings from MusicBuddy always take precedence.
-
-**Rationale:** MusicBuddy contains user-curated ratings. Spotify's saved albums have no native rating. Merging should enrich MusicBuddy entries, not replace them.
+**Decision:** MusicBuddy CSV is primary. Spotify is enrichment-only (cover art, Spotify ID).
 
 ---
 
 ### DEC-006 — Deduplication priority rules
 
-**Date:** Feb, 2026  
+**Date:** Feb, 2026
 **Status:** Accepted
 
-**Context:** When the same item exists in multiple sources, one version must be kept.
-
-**Decision:** Priority order:
-
-1. Keep the entry **with a rating** (rating > 0 / not NULL)
-2. If both have ratings, keep the **higher rating**
-3. If neither has a rating, keep the **oldest entry** (earliest `date_added`)
-
-**Rationale:** A user-supplied rating is more valuable than no rating. A higher rating is preferred because it more likely reflects a deliberate user choice. Oldest entry preserves the original discovery date.
+**Decision:** 1) Keep entry with a rating. 2) Higher rating wins. 3) Oldest entry if neither rated.
 
 ---
 
@@ -118,28 +145,7 @@
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** `mart_ratings` was materialized as a `table`, meaning `dbt run` rebuilt
-it from scratch on every pipeline run. User ratings set via the API (`source='user'`)
-were silently overwritten if the source CSV did not contain a rating for that item.
-
-**Options considered:**
-
-- Keep `table` materialization + post-hook UPSERT: fragile — dbt's `CREATE OR REPLACE`
-  runs before any hook, so the table is already empty when the hook fires.
-- Satellite table managed entirely outside dbt (like `mart_item_categories`): removes
-  dbt visibility and testing over the ratings model.
-- `incremental` materialization with `AND id NOT IN (SELECT item_id FROM {{ this }})`:
-  inserts only new items on subsequent runs; existing rows (including user ratings) are
-  never touched by dbt.
-
-**Decision:** Switch `mart_ratings` to `incremental` materialization. On first run the
-full set of rated items is inserted. On subsequent runs only items whose `item_id` is
-not yet present in the table are inserted. User ratings (`source='user'`) survive all
-future pipeline rebuilds.
-
-**Rationale:** Preserves user data across pipeline rebuilds without removing the model
-from dbt's DAG. The incremental filter is a single `NOT IN` subquery — simple, auditable,
-and consistent with how dbt incremental models are commonly used.
+**Decision:** `mart_ratings` uses incremental materialization. Existing rows (user ratings) survive all pipeline rebuilds.
 
 ---
 
@@ -148,17 +154,7 @@ and consistent with how dbt incremental models are commonly used.
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** The `POST /ingest/upload` endpoint receives a CSV file for a named source
-(e.g. `bookbuddy`) and must trigger the full ingestion pipeline. The file's original
-name from the user's device is irrelevant to the pipeline.
-
-**Decision:** The uploaded file is saved under the canonical filename for its source
-(e.g. `data/raw/bookbuddy.csv`), overwriting any previous version. After saving, the
-full pipeline runs: `run_ingestion.py` (all sources) + `dbt run` (all models).
-
-**Rationale:** Running the full pipeline rather than a partial one avoids partial state
-where bronze tables are out of sync with silver/gold. The canonical filename requirement
-(DEC-014) is enforced server-side — the user does not need to rename files before upload.
+**Decision:** Uploaded files saved under canonical filename. Full pipeline always runs after upload.
 
 ---
 
@@ -167,25 +163,7 @@ where bronze tables are out of sync with silver/gold. The canonical filename req
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** During ingestion triggered by `POST /ingest/upload`, the Spotify client
-blocked the entire uvicorn worker indefinitely because:
-
-1. `httpx` calls had no timeout configured.
-2. The `Retry-After` header from a 429 response was 83,000+ seconds (~23 hours),
-   and the code called `time.sleep(retry_after)` unconditionally.
-
-**Decision:**
-
-- Add `timeout=30` to all `httpx.get` and `httpx.post` calls in `SpotifyClient` and
-  `TraktClient`.
-- In `SpotifyClient._get()`: if `Retry-After > 60`, raise `HTTPStatusError` immediately
-  instead of sleeping. The per-endpoint `try/except` in `_parse()` catches this and logs
-  a warning, allowing the other endpoints to be skipped gracefully.
-
-**Rationale:** A 30s timeout is sufficient for normal API latency. Sleeping 23 hours
-inside a synchronous web server worker is unacceptable. The 60s cap means short rate
-limit windows are still retried, while long windows (Spotify's extended rate limiting)
-fail fast and log a clear message.
+**Decision:** 30s timeout on all httpx calls. `Retry-After > 60s` → skip Spotify gracefully.
 
 ---
 
@@ -193,98 +171,55 @@ fail fast and log a clear message.
 
 ### DEC-007 — dbt-duckdb over raw SQL scripts
 
-**Date:** Feb, 2026  
+**Date:** Feb, 2026
 **Status:** Accepted
 
-**Context:** Transformations need to be maintainable, testable, and documented.
-
-**Decision:** dbt-duckdb for all transformations.
-
-**Rationale:** dbt provides data lineage, built-in schema tests (`not_null`, `unique`, `accepted_values`), auto-generated docs, and incremental models. It's a standard analytics engineering tool that also demonstrates professional skills for the portfolio.
+**Decision:** dbt-duckdb for all transformations (lineage, schema tests, incremental models).
 
 ---
 
 ### DEC-008 — LangGraph over CrewAI or plain LangChain
 
-**Date:** Feb, 2026  
+**Date:** Feb, 2026
 **Status:** Accepted
 
-**Context:** The conversational agent needs to manage state across turns and call multiple tools (SQL, rating, recommendation).
-
-**Options considered:**
-
-- Plain LangChain: adequate for simple chains, weak for stateful multi-turn conversations
-- CrewAI: designed for multi-agent workflows, overkill for a single-agent use case
-- LangGraph: explicit state machine, fine-grained control over nodes and edges
-
-**Decision:** LangGraph.
-
-**Rationale:** TasteBase needs a single agent with memory, not a multi-agent crew. LangGraph's explicit state graph makes the agent's behavior predictable and debuggable. It also allows structured SQL tool calls with validated outputs.
+**Decision:** LangGraph — explicit state machine, fine-grained control, better for stateful single-agent use case.
 
 ---
 
 ### DEC-009 — Chainlit for agent UI
 
-**Date:** Feb, 2026  
+**Date:** Feb, 2026
 **Status:** Accepted
 
-**Context:** The agent needs a chat interface.
-
-**Options considered:**
-
-- Streamlit: general-purpose, requires more work for a chat-first UI
-- Gradio: similar limitations
-- Custom React frontend: full control but significant development overhead
-- Chainlit: purpose-built for conversational AI UIs, integrates natively with LangGraph
-
-**Decision:** Chainlit.
-
-**Rationale:** Chainlit provides streaming, message threading, user sessions, and LangGraph integration out of the box. It reduces frontend work to near-zero for the agent UI.
+**Decision:** Chainlit — purpose-built for conversational AI, native LangGraph integration.
 
 ---
 
-### DEC-010 — Evidence.dev for the dashboard
+### DEC-010 — Evidence.dev for the dashboard (superseded by DEC-035)
 
-**Date:** Feb, 2026  
-**Status:** Accepted
+**Date:** Feb, 2026
+**Status:** Superseded
 
-**Context:** The project needs a read-only analytics dashboard.
-
-**Options considered:**
-
-- Streamlit: Python-native but requires a server, mixes UI and logic
-- Metabase: full-featured but heavyweight for personal use
-- Evidence.dev: markdown + SQL, generates a static site, dbt-native
-
-**Decision:** Evidence.dev.
-
-**Rationale:** Evidence.dev reads DuckDB directly, integrates with dbt, and compiles to a static site (easy to deploy on Coolify). Writing dashboards in markdown + SQL is a clean, low-overhead pattern that fits the project's "code-first" philosophy.
+**See DEC-035.** Evidence.dev replaced by Vue 3 Insights pages (Chart.js).
 
 ---
 
 ### DEC-011 — FastAPI as the only DuckDB access layer
 
-**Date:** Feb, 2026  
+**Date:** Feb, 2026
 **Status:** Accepted
 
-**Context:** Both the frontend and the LangGraph agent need to read/write data.
-
-**Decision:** All DuckDB reads and writes go through FastAPI endpoints. The frontend and the agent never connect to DuckDB directly.
-
-**Rationale:** A single access layer enforces consistent validation (Pydantic), handles concurrent access safely, and makes the API independently testable. It also makes the agent's tool calls explicit HTTP calls, which are easier to log and debug.
+**Decision:** All DuckDB reads/writes go through FastAPI. Frontend and agent never touch DuckDB directly.
 
 ---
 
-### DEC-012 — `gold_rating_events` is append-only
+### DEC-012 — mart_rating_events is append-only
 
-**Date:** Feb, 2026  
+**Date:** Feb, 2026
 **Status:** Accepted
 
-**Context:** User ratings can change over time. The history of changes is valuable for the taste profile and for debugging.
-
-**Decision:** `mart_rating_events` (gold) is append-only. Every rating change inserts a new row with `old_rating`, `new_rating`, `changed_by`, and `changed_at`. Rows are never updated or deleted.
-
-**Rationale:** An immutable event log enables full audit trail, time-travel queries ("what did I rate this in 2023?"), and future trend analysis. It follows the event sourcing pattern standard in data engineering.
+**Decision:** `mart_rating_events` is append-only. Rows are never updated or deleted.
 
 ---
 
@@ -292,14 +227,10 @@ fail fast and log a clear message.
 
 ### DEC-013 — French as the default language
 
-**Date:** Feb, 2026  
+**Date:** Feb, 2026
 **Status:** Accepted
 
-**Context:** Jeremy is French and uses the app personally. The app will also be open-sourced for a broader audience.
-
-**Decision:** French is the default language. English is a supported alternative. All translation strings live in `frontend/i18n/fr.json` and `frontend/i18n/en.json`. Agent prompts are available in both languages in `agent/prompts.py`.
-
-**Rationale:** French-first reflects the author's primary use case. English support makes the project accessible internationally and aligns with the open-source goal.
+**Decision:** French is default. English supported. Strings in `fr.json` / `en.json`.
 
 ---
 
@@ -307,14 +238,6 @@ fail fast and log a clear message.
 
 **Date:** Mar, 2026
 **Status:** Accepted
-
-**Context:** Buddy+ apps and Letterboxd export files with names that
-include timestamps (e.g. `MusicBuddy 2026-03-05 144228`,
-`letterboxd-username-2026-03-05-16-05-utc/ratings.csv`). Loaders need
-a predictable filename to operate without configuration.
-
-**Decision:** Each source has a fixed canonical filename that the user
-must use:
 
 | Source     | Expected file             |
 | ---------- | ------------------------- |
@@ -324,13 +247,6 @@ must use:
 | MovieBuddy | `data/raw/moviebuddy.csv` |
 | Letterboxd | `data/raw/letterboxd.csv` |
 
-The `POST /ingest/upload` endpoint enforces this automatically — the uploaded file
-is always saved under the canonical name regardless of its original filename.
-
-**Rationale:** A fixed name per source keeps loader code simple (no
-glob patterns, no dynamic file discovery) and makes behavior
-predictable.
-
 ---
 
 ### DEC-015 — Audit columns injected at the bronze layer
@@ -338,25 +254,7 @@ predictable.
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** In the silver layer, multiple sources are merged into a
-single model (e.g. BookBuddy + Goodreads → stg_books). Without
-explicit traceability, it becomes impossible to know where a row
-originated after a join.
-
-**Decision:** Two audit columns are added by `BaseLoader` to every row
-before writing to bronze:
-
-- `_source` (VARCHAR): source identifier, e.g. `"musicbuddy"`
-- `_loaded_at` (TIMESTAMP WITH TIME ZONE): UTC timestamp of the ingestion run
-
-The `_` prefix follows the dbt convention for technical metadata columns.
-Injection happens in `BaseLoader.load()`, after `_parse()` returns, so
-no concrete loader ever needs to handle it.
-
-**Rationale:** Source-to-gold traceability is essential for debugging
-deduplication and auditing imported ratings. Centralizing injection in
-`BaseLoader` makes it impossible for any loader to accidentally omit
-these columns.
+**Decision:** `_source` and `_loaded_at` added by `BaseLoader` to every bronze row.
 
 ---
 
@@ -365,26 +263,7 @@ these columns.
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** API clients (Spotify, Trakt) initially inherited from `BaseLoader`,
-but `BaseLoader` enforces three constraints that are incompatible with API sources:
-
-- `__init__` requires a `file_path` (API sources have no file on disk)
-- `validate()` is abstract and oriented toward CSV file validation
-- `_parse()` returns a `pd.DataFrame` (API clients return a `list[dict]`)
-
-**Decision:** Create `ingestion/base_api_client.py` — a separate abstract base class
-that shares only what is common to both loader types: audit column injection
-(`_source`, `_loaded_at`), scoped logging, and a consistent `load()` interface.
-
-Abstract methods defined in `BaseApiClient`:
-
-- `_parse() -> list[dict]`: fetch from API and return raw records
-- `_write_to_bronze(records)`: write records to the DuckDB bronze table
-
-**Rationale:** Follows the Interface Segregation Principle — API clients should not
-be required to implement `validate()` or accept a `file_path` that has no meaning
-for them. Both classes share the same observable contract (`load()`, audit columns)
-without artificial coupling.
+**Decision:** Separate `base_api_client.py` for API sources. Shares `load()` interface but not CSV-specific methods.
 
 ---
 
@@ -393,18 +272,7 @@ without artificial coupling.
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** dbt resolves relative paths from the directory it is executed in
-(`transform/`), not from the project root. Setting `DUCKDB_PATH=data/warehouse.duckdb`
-in `.env` causes dbt to look for `transform/data/warehouse.duckdb`, which does
-not exist.
-
-**Decision:** `DUCKDB_PATH` must always be set as an absolute path in `.env`.
-The fallback value in `profiles.yml` has been removed to force an explicit error
-if the variable is missing, rather than silently resolving to the wrong path.
-
-**Rationale:** A missing-variable error is easier to diagnose than a
-"file not found" error pointing to a non-existent nested path. Absolute paths
-eliminate ambiguity regardless of the working directory.
+**Decision:** `DUCKDB_PATH` must be an absolute path. dbt resolves relative paths from `transform/`.
 
 ---
 
@@ -413,19 +281,7 @@ eliminate ambiguity regardless of the working directory.
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** `raw_spotify.sql` reads from `main.raw_spotify`, which is created
-by `SpotifyClient.load()`. When Spotify is rate-limited and ingestion hasn't run,
-`main.raw_spotify` does not exist, causing `dbt run --select raw_spotify` to fail.
-A self-referencing fallback in the model caused a DAG cycle error.
-
-**Decision:** Use a dbt `pre_hook` in `raw_spotify.sql` to create `main.raw_spotify`
-as an empty table if it does not exist, before the SELECT runs.
-
-**Rationale:** The pre_hook runs before the model's SELECT, breaking the cycle.
-Downstream silver models (`stg_music`) can reference `raw_spotify` safely via
-`{{ ref() }}` regardless of whether Spotify has been ingested. When Spotify
-ingestion runs, `make ingest` populates `main.raw_spotify` and the next
-`dbt run` propagates the data automatically.
+**Decision:** `pre_hook` in `raw_spotify.sql` creates `main.raw_spotify` as empty table if missing.
 
 ---
 
@@ -434,19 +290,7 @@ ingestion runs, `make ingest` populates `main.raw_spotify` and the next
 **Date:** Mar, 2026
 **Status:** Accepted (with known limitation)
 
-**Context:** MovieBuddy exports genre metadata from TMDB, which uses
-"Animation" as a genre — not "Anime". The `stg_anime.sql` model filters on
-`LOWER(genres) LIKE '%anime%'`, which produces 0 rows against real MovieBuddy
-exports.
-
-**Decision:** Keep the current signal as the primary detection mechanism.
-Document the limitation. Plan enrichment via production country (JP) or a
-curated anime titles seed as a backlog item.
-
-**Rationale:** Changing the detection to `LIKE '%animation%'` would produce
-false positives (e.g. Pixar films, western cartoons). A dedicated anime seed
-or country-based enrichment is the correct long-term fix. The current state
-is a known gap, not a bug.
+**Decision:** MovieBuddy exports "Animation" not "Anime" (TMDB). Fix via production country or curated seed is backlog.
 
 ---
 
@@ -455,26 +299,7 @@ is a known gap, not a bug.
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** FastAPI needs a safe way to access DuckDB across concurrent
-requests. DuckDB in single-file mode does not support multiple simultaneous
-writers safely.
-
-**Options considered:**
-
-- Shared connection via lifespan (`app.state.db`): simple, but risks
-  concurrent write conflicts and complicates test isolation.
-- Global module-level connection: same concurrency problem, harder to override
-  in tests.
-- Per-request connection via `contextmanager` + `Depends`: each request opens
-  and closes its own connection; safe for the expected single-user load.
-
-**Decision:** Per-request connection injected via `api/dependencies.py:get_db`
-using FastAPI's `Depends` mechanism.
-
-**Rationale:** Eliminates concurrent write conflicts on the single-file
-database. The `Depends` pattern makes the connection trivially replaceable
-in tests (override `get_db` in `conftest.py` to inject an in-memory DuckDB).
-Connection overhead is negligible at personal-data scale.
+**Decision:** Per-request connections via `get_db` / `get_db_write` (see DEC-037).
 
 ---
 
@@ -483,23 +308,7 @@ Connection overhead is negligible at personal-data scale.
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** The `/ingest` endpoint needs to trigger a `dbt run` after
-CSV/API ingestion completes.
-
-**Options considered:**
-
-- `dbt-core` Python API: internal, undocumented as a public interface, has
-  broken between minor versions.
-- `subprocess.run(["dbt", "run"])`: the approach recommended by dbt for
-  external integrations; stable across versions.
-
-**Decision:** `subprocess.run(["dbt", "run"], cwd=transform/)` with
-`capture_output=True`.
-
-**Rationale:** The subprocess approach is stable, predictable, and produces
-the same output as running dbt manually. Both stdout and stderr are captured
-and returned in the `IngestionResult` response, making failures easy to
-diagnose from the API response alone.
+**Decision:** `subprocess.run(["dbt", "run"], cwd=transform/)` with `capture_output=True`.
 
 ---
 
@@ -508,127 +317,39 @@ diagnose from the API response alone.
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** API tests need an isolated database that does not touch the
-real warehouse file.
-
-**Options considered:**
-
-- Mock the `get_db` dependency with `unittest.mock`: fast, but does not
-  exercise any SQL logic.
-- Temporary file-based DuckDB: exercises SQL but requires cleanup and risks
-  interference between parallel test runs.
-- In-memory DuckDB with gold schema bootstrapped in `conftest.py`: exercises
-  real SQL, fully isolated, zero cleanup required.
-
-**Decision:** In-memory DuckDB connection injected via `app.dependency_overrides[get_db]`
-in `tests/api/conftest.py`. The fixture creates the gold schema tables and
-seeds one item per domain before each test.
-
-**Rationale:** Tests exercise the real SQL queries against a realistic schema
-without any mocking of database logic. Each test gets a fresh state.
-The override pattern is the idiomatic FastAPI approach for dependency
-substitution in tests.
+**Decision:** In-memory DuckDB injected via `app.dependency_overrides[get_db]` in `tests/api/conftest.py`.
 
 ---
 
-### DEC-023 — Rating tool split into search + submit (two tools, not one)
+### DEC-023 — Rating tool split into search + submit
 
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** The agent needs to rate an item by title (e.g. "Note Dune à 5 étoiles").
-A single tool that accepts a title and a rating would force the LLM to guess the
-item ID, risking silent mismatches (wrong "Dune", wrong domain).
-
-**Options considered:**
-
-- Single `rate_item(title, rating)` tool: simple, but the LLM has to resolve the
-  title to an ID internally with no user confirmation.
-- Two tools — `search_item_for_rating(title)` + `submit_rating(item_id, rating)`:
-  forces a confirmation step between search and write.
-
-**Decision:** Two separate tools. The system prompt and tool docstrings explicitly
-instruct the agent to never call `submit_rating` without a prior `search_item_for_rating`
-and explicit user confirmation.
-
-**Rationale:** A rating write is a destructive action (it overwrites the previous
-rating and appends to the audit trail). Requiring confirmation before executing
-prevents accidental writes on the wrong item. The two-step flow also makes the
-agent's reasoning visible to the user in the Chainlit UI as two distinct Steps.
+**Decision:** Two tools: `search_item_for_rating` + `submit_rating`. User confirmation required between them.
 
 ---
 
-### DEC-024 — sys.path fix in agent/app.py for Chainlit execution context
+### DEC-024 — sys.path fix in agent/app.py
 
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** Chainlit executes `agent/app.py` by adding `agent/` to `sys.path`,
-which breaks absolute imports like `from agent.graph import graph` — Python looks
-for a module named `agent` inside the `agent/` directory, which does not exist.
-
-**Decision:** Add the project root to `sys.path` at the top of `agent/app.py`,
-before any project imports:
-
-```python
-sys.path.insert(0, str(Path(__file__).parent.parent))
-```
-
-**Rationale:** This is the standard fix for scripts executed from a subdirectory.
-It is limited to `app.py` (the Chainlit entry point) and does not affect any other
-module. All other project files use normal absolute imports without this workaround,
-since they are always executed from the project root (pytest, uvicorn, dbt).
+**Decision:** `sys.path.insert(0, str(Path(__file__).parent.parent))` at top of `agent/app.py`.
 
 ---
 
-### DEC-025 — Evidence.dev requires DuckDB file physically in sources/ directory
+### DEC-025 — Evidence.dev requires DuckDB file physically in sources/ (superseded)
 
 **Date:** Mar, 2026
-**Status:** Accepted
-
-**Context:** Evidence.dev's DuckDB plugin resolves the `filename` option relative
-to the source directory (`sources/[source_name]/`). Symlinks are not followed,
-absolute paths are prepended with the source directory path, and external relative
-paths resolve incorrectly. The plugin requires the `.duckdb` file to be physically
-present in `sources/[source_name]/`.
-
-**Options considered:**
-
-- Symlink from `sources/tastebase/warehouse.duckdb` → `../../data/warehouse.duckdb`:
-  Evidence does not follow symlinks, file appears as 0 B.
-- Absolute path in `connection.yaml`: Evidence prepends the source directory,
-  producing a double-path error.
-- Copy `data/warehouse.duckdb` into `sources/tastebase/warehouse.duckdb`:
-  works reliably. File is gitignored in `dashboard/.gitignore`.
-
-**Decision:** Copy the warehouse file before each Evidence session via
-`make dashboard-sync`. The copy is gitignored. `make dashboard` combines
-sync + `npm run dev` into a single command.
-
-**Rationale:** The copy approach is the only one that works reliably across
-all Evidence versions without patching the plugin. The Makefile command makes
-it ergonomic. In Docker deployment, the warehouse volume will be mounted
-directly into `sources/tastebase/`, eliminating the need for the copy step.
+**Status:** Superseded — See DEC-035.
 
 ---
 
-### DEC-026 — Evidence pages guard empty datasets with {#if} instead of empty components
+### DEC-026 — Evidence pages guard empty datasets (superseded)
 
 **Date:** Mar, 2026
-**Status:** Accepted
-
-**Context:** Evidence's `BigValue` component errors visibly when its data query
-returns 0 rows. `DataTable` and chart components display an unhelpful empty state.
-Several domains (music, series) have 0 rated items; anime has 0 items entirely.
-
-**Decision:** Use Evidence's Svelte `{#if query.length > 0}...{:else}<Note>...{/if}`
-syntax to guard any component that depends on a query that may return 0 rows.
-`BigValue` components for domains with no data use `COUNT(*)` queries instead
-(always returns exactly 1 row) rather than filtering on `stat_type`/`dimension`.
-
-**Rationale:** An explicit empty state with a descriptive `<Note>` is better UX
-than a crashed component. The guard also makes the dashboard forward-compatible:
-sections will populate automatically once data is available, without any page edits.
+**Status:** Superseded — See DEC-035.
 
 ---
 
@@ -637,35 +358,8 @@ sections will populate automatically once data is available, without any page ed
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** Users need to manually assign a genre/sub_genre to items after import.
-The genre taxonomy is user-defined (not derivable from source data) and must survive
-`dbt run` rebuilds of the gold layer.
-
-**Options considered:**
-
-- Add `genre` / `sub_genre` columns to `mart_unified_tastes`: simple, but these columns
-  would be overwritten on every `dbt run`.
-- Separate table `mart_item_categories` in `main_gold`, created by FastAPI at startup,
-  written only via the API: survives pipeline rebuilds, same pattern as `mart_ratings`.
-
-**Decision:** `mart_item_categories` — a satellite table in `main_gold`, created via
-`CREATE TABLE IF NOT EXISTS` in the FastAPI lifespan hook. Upserted via
-`POST /items/{item_id}/category`.
-
-**Schema:**
-
-```sql
-item_id    VARCHAR PRIMARY KEY
-domain     VARCHAR NOT NULL
-genre      VARCHAR NOT NULL
-sub_genre  VARCHAR
-updated_at TIMESTAMPTZ
-```
-
-**Rationale:** Mirrors the `mart_ratings` pattern (DEC-011). User-assigned metadata
-lives outside the dbt DAG so it is never clobbered by pipeline runs. The FastAPI
-lifespan hook ensures the table exists on every startup without requiring a migration
-script.
+**Decision:** `mart_item_categories` in `main_gold`, created via `CREATE TABLE IF NOT EXISTS`
+in the FastAPI lifespan. Survives all `dbt run` rebuilds.
 
 ---
 
@@ -674,31 +368,8 @@ script.
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** The frontend needed a framework capable of handling reactive state (filters,
-pagination, multi-select), i18n, and routing — while remaining a learning vehicle for
-modern Vue development.
-
-**Options considered:**
-
-- Vanilla JS (original plan): adequate for simple interactions, but filter/pagination/
-  i18n state management becomes unwieldy without a framework.
-- Alpine.js: lightweight, no build step, but limited Composition API ecosystem.
-- Vue 3 + Vite: full Composition API, SFC, vue-router, vue-i18n, excellent DX.
-- React / Next.js: viable but overkill for a single-user personal tool.
-
-**Decision:** Vue 3 (Composition API, SFC) + Vite, with vue-router, vue-i18n, axios,
-and SCSS (sass) for styling. No component library — custom design system via SCSS tokens.
-
-**Key conventions:**
-
-- `additionalData` in `vite.config.js` injects `_variables.scss` into every `<style lang="scss">` block via `import.meta.url` (ESM-compatible, avoids `__dirname`)
-- All domain metadata (color, icon, route) centralised in `config/domains.js`
-- All category taxonomy centralised in `config/categories.js`
-- API calls go through thin modules in `src/api/` (items, ratings, categories, stats, ingestion)
-
-**Rationale:** Vue 3 provides the right balance of power and simplicity for this
-project size. The Composition API maps cleanly to the filter/pagination/selection
-state patterns needed. Vite's HMR makes the development loop fast.
+**Decision:** Vue 3 (Composition API, SFC) + Vite, vue-router, vue-i18n, axios, SCSS.
+No component library. Custom design system via SCSS tokens.
 
 ---
 
@@ -707,25 +378,7 @@ state patterns needed. Vite's HMR makes the development loop fast.
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** Users need to remove items they created manually via the UI. A soft-delete
-(deleted_at flag) was originally planned but deferred.
-
-**Options considered:**
-
-- Soft delete (`deleted_at` column): preserves history, more complex queries needed
-  everywhere to filter out deleted items.
-- Hard delete: simple, immediate, no schema change needed. Correct for user-created items.
-
-**Decision:** Hard delete via `DELETE /items/{item_id}`. Removes from `mart_unified_tastes`,
-`mart_ratings`, `mart_rating_events`, and `mart_item_categories` in dependency order.
-
-**Caveat:** dbt-managed items (source ≠ 'manual') will reappear on the next `dbt run`.
-The API does not enforce source restriction — this is documented behaviour, not a bug.
-The UI confirmation dialog makes the consequence clear to the user.
-
-**Rationale:** Hard delete is appropriate for personal-scale data where the user
-has full control. Soft delete adds query complexity everywhere with little benefit
-for a single-user application. The pipeline rebuild caveat is acceptable.
+**Decision:** Hard delete via `DELETE /items/{item_id}`. dbt-managed items reappear on next `dbt run` — by design.
 
 ---
 
@@ -734,17 +387,7 @@ for a single-user application. The pipeline rebuild caveat is acceptable.
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** The agent was hardcoded to `claude-3-5-haiku-20241022`, which was
-deprecated by Anthropic. All three `_get_llm()` functions (in `graph.py`,
-`sql_tool.py`, `recommend_tool.py`) shared the same hardcoded string.
-
-**Decision:** All three `_get_llm()` calls now read from `os.environ.get("AGENT_MODEL",
-"claude-haiku-4-5-20251001")`. The env var `AGENT_MODEL` in `.env` controls the model
-for the entire agent stack.
-
-**Rationale:** A single env var makes model upgrades a one-line change in `.env`
-without touching any code. The fallback to the current Haiku model ensures the agent
-works out of the box without any `.env` configuration.
+**Decision:** All `_get_llm()` calls read from `os.environ.get("AGENT_MODEL", "claude-haiku-4-5-20251001")`.
 
 ---
 
@@ -753,68 +396,34 @@ works out of the box without any `.env` configuration.
 **Date:** Mar, 2026
 **Status:** Accepted
 
-**Context:** The Chainlit `app.py` used `astream_events` token streaming, but tokens
-are emitted across two `call_model` passes — one before tool calls (where the LLM
-echos intermediate reasoning such as raw SQL) and one after (the final reformulated
-answer). Distinguishing these in real time is not reliably possible.
-
-Additionally, `AIMessage.content` returned by Anthropic models can be a list of
-content blocks (`[{"type": "text", "text": "..."}]`) rather than a plain string,
-causing Chainlit's JS layer to throw `t.trim is not a function`.
-
-**Decision:**
-
-- Disable token streaming entirely.
-- Listen to `on_chain_end` events for the `call_model` node.
-- Extract the last `AIMessage` without `tool_calls` as the final answer.
-- Normalize `content` via `_extract_text()` before passing to Chainlit.
-- Update the response bubble once at the end via `response_message.update()`.
-- Tool call Steps (`on_tool_start` / `on_tool_end`) are still surfaced in real time.
-
-**Rationale:** Collecting the final answer from `on_chain_end` is deterministic and
-correct regardless of how many tool call passes occur. The trade-off (response appears
-all at once rather than streaming) is acceptable given that tool Steps provide live
-feedback during processing.
+**Decision:** Token streaming disabled. Final answer from `on_chain_end`. `AIMessage.content`
+normalized via `_extract_text()`.
 
 ---
 
-### DEC-035 — Evidence.dev removed; Coolify split into two independent apps
+### DEC-035 — Evidence.dev removed; Coolify split into two independent apps; frontend on Netlify
 
-**Date:** 2026-04-27
+**Date:** 2026-04
 **Status:** Accepted
 
-**Context:** Evidence.dev required a physical DuckDB file to be present at
-build/runtime inside the container, creating a fragile dependency on the
-duckdb_data volume. If the API had not yet written the file, the dashboard
-container crashed at startup. Deploying all three services in a single Coolify
-app caused cascading health check failures: one failing service blocked Traefik
-routing for all others.
-
-**Options considered:**
-
-- Keep Evidence.dev and fix the volume-mount timing with an entrypoint script:
-  fragile, adds complexity, root cause remains.
-- Replace with Metabase: no reliable DuckDB driver, adds a Java container.
-- Replace with Superset/Redash: heavy infrastructure (Redis, Celery), overkill
-  for personal scale.
-- Integrate visualisations into the existing Vue 3 frontend (Chart.js): zero
-  extra services, consistent design, deployable as a static site on Netlify.
+**Context:** Evidence.dev required a physical DuckDB file in the container, causing
+cascading failures. Deploying all services in a single Coolify app caused cascading health
+check failures. Coolify's `docker buildx bake` passes all env vars as `--build-arg`,
+which BuildKit rejects unless `ARG` is declared — fixed with `args: {}` in compose files.
 
 **Decision:**
 
-1. Evidence.dev is removed. Dashboard visualisations are integrated into the
-   Vue 3 frontend as an Insights section using Chart.js, consuming existing
-   FastAPI /stats/\* endpoints.
-2. Coolify deployment is split into two independent applications:
-   - tastebase-api → docker/api/docker-compose.yml (FastAPI + DuckDB volume)
-   - tastebase-agent → docker/agent/docker-compose.yml (Chainlit, no volume)
-3. The Vue 3 frontend is deployed on Netlify as a static build.
-4. The root docker-compose.yml is kept for local development only (2 services,
-   ports: instead of expose:).
+1. Evidence.dev removed. Insights section added to Vue 3 frontend (Chart.js / vue-chartjs):
+   domain donut, rating distribution, decades stacked bar, top creators horizontal bar.
+2. Coolify split into two apps using repo-root compose files:
+   - `tastebase-api` → `docker-compose.api.yml`
+   - `tastebase-agent` → `docker-compose.agent.yml`
+3. Vue 3 frontend deployed on Netlify (`frontend/netlify.toml`).
 
-**Rationale:** Removing Evidence.dev eliminates the volume-timing problem.
-Splitting into two Coolify apps means each service has its own health check,
-restart policy, and deploy cycle — a failing agent no longer blocks the API.
-Netlify handles TLS, CDN, and deploys automatically on push for the frontend.
+**Key production env vars:**
+
+- `tastebase-api`: `FRONTEND_URL`, `TASTEBASE_AGENT_URL` (CORS), `DUCKDB_PATH=/app/data/warehouse.duckdb`
+- `tastebase-agent`: `API_BASE_URL=https://api.tastebase.jeremymarchandeau.com`
+- Netlify: `VITE_API_BASE_URL`, `VITE_AGENT_URL`
 
 ---

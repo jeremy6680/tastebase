@@ -4,8 +4,8 @@
 
 [![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python)](https://python.org)
 [![dbt](https://img.shields.io/badge/dbt-duckdb-orange?logo=dbt)](https://docs.getdbt.com)
-[![DuckDB](https://img.shields.io/badge/DuckDB-0.10-yellow)](https://duckdb.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.110-green?logo=fastapi)](https://fastapi.tiangolo.com)
+[![DuckDB](https://img.shields.io/badge/DuckDB-latest-yellow)](https://duckdb.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-latest-green?logo=fastapi)](https://fastapi.tiangolo.com)
 [![Vue 3](https://img.shields.io/badge/Vue-3-41b883?logo=vue.js)](https://vuejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-lightgrey)](LICENSE)
 
@@ -13,6 +13,8 @@ TasteBase aggregates your cultural consumption data from multiple apps into a si
 [DuckDB](https://duckdb.org) warehouse, exposes it through an interactive Vue 3 frontend,
 and makes it queryable via a [LangGraph](https://langchain-ai.github.io/langgraph/)
 conversational agent.
+
+**Live demo:** https://tastebase.jeremymarchandeau.com
 
 ---
 
@@ -23,7 +25,7 @@ conversational agent.
 - **Transform** raw data through a medallion architecture (bronze → silver → gold) using dbt
 - **Browse and rate** your entire cultural library from a single Vue 3 interface
 - **Query** your taste profile in natural language via a LangGraph + Chainlit chat agent
-- **Analyse** trends and patterns through an Evidence.dev analytics dashboard
+- **Analyse** trends and patterns in the Insights section (Chart.js visualisations)
 
 ---
 
@@ -39,9 +41,10 @@ conversational agent.
                             ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │  ingestion/  (Python)                                                │
-│  One loader per source · Audit columns injected (_source, _loaded_at)│
+│  One loader per source · Audit columns (_source, _loaded_at)         │
+│  Writes to data/tmp/warehouse.duckdb (isolated from live API)        │
 └───────────────────────────┬──────────────────────────────────────────┘
-                            │
+                            │ atomic replace on success
                             ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │  DuckDB warehouse  (data/warehouse.duckdb)                           │
@@ -53,27 +56,29 @@ conversational agent.
 │  (view)  Normalized · deduplicated · unified 1–5 rating scale        │
 │                                                                      │
 │  Gold    mart_unified_tastes · mart_ratings · mart_rating_events     │
-│  (table) mart_top_rated · mart_taste_profile                         │
-└──────┬──────────────────────────────────────────┬────────────────────┘
-       │                                          │
-       ▼                                          ▼
-┌─────────────────────┐               ┌───────────────────────┐
-│  FastAPI  (api/)    │               │  Evidence.dev         │
-│  All reads + writes │               │  (dashboard/)         │
-│  Pydantic schemas   │               │  Read-only analytics  │
-└──────┬──────────────┘               └───────────────────────┘
-       │
-       ├──────────────────────────────┐
-       ▼                              ▼
+│  (table) mart_top_rated · mart_taste_profile · mart_item_categories  │
+└──────────────────────────┬───────────────────────────────────────────┘
+                           │
+                           ▼
+              ┌────────────────────────┐
+              │  FastAPI  (api/)       │
+              │  All reads + writes    │
+              │  Pydantic schemas      │
+              └────────┬───────────────┘
+                       │
+          ┌────────────┴─────────────┐
+          ▼                          ▼
 ┌─────────────────────┐   ┌──────────────────────────┐
 │  Vue 3 + Vite       │   │  LangGraph + Chainlit    │
 │  (frontend/)        │   │  (agent/)                │
 │  Browse · rate ·    │   │  Conversational queries  │
-│  upload · manage    │   │  Natural language → SQL  │
+│  upload · insights  │   │  Natural language → SQL  │
 └─────────────────────┘   └──────────────────────────┘
 ```
 
-**Stack:** Python 3.12 · DuckDB · dbt-duckdb · FastAPI · Vue 3 + Vite · LangGraph · Chainlit · Evidence.dev
+**Stack:** Python 3.12 · DuckDB · dbt-duckdb · FastAPI · Vue 3 + Vite · Chart.js · LangGraph · Chainlit
+
+**Deployment:** FastAPI + Chainlit on Coolify/Hetzner · Vue 3 on Netlify
 
 ---
 
@@ -82,7 +87,7 @@ conversational agent.
 | Tool    | Minimum version | Notes                               |
 | ------- | --------------- | ----------------------------------- |
 | Python  | 3.12            | `python --version`                  |
-| Node.js | 18              | Required for frontend and dashboard |
+| Node.js | 18              | Required for the frontend           |
 | pip     | latest          | `pip install --upgrade pip`         |
 | Git     | any             | —                                   |
 
@@ -122,6 +127,7 @@ SPOTIFY_ACCESS_TOKEN=
 SPOTIFY_REFRESH_TOKEN=
 
 # Trakt.tv (optional — watched shows and movies)
+# Tokens expire every 90 days — see docs/data-sources.md for refresh instructions
 TRAKT_CLIENT_ID=
 TRAKT_CLIENT_SECRET=
 TRAKT_ACCESS_TOKEN=
@@ -137,34 +143,33 @@ TRAKT_REFRESH_TOKEN=
 cd frontend && npm install && cd ..
 ```
 
-### 4. Install dashboard dependencies
-
-```bash
-cd dashboard && npm install && cd ..
-```
-
 ---
 
 ## Importing your data
 
 TasteBase reads CSV exports from your apps. See [`docs/data-sources.md`](docs/data-sources.md)
-for step-by-step export instructions for each supported app.
+for step-by-step export instructions.
 
 ### Option A — Via the web UI (recommended)
 
-1. Start the API: `uvicorn api.main:app --workers 4`
-2. Start the frontend: `cd frontend && npm run dev`
+1. Start the API: `make api`
+2. Start the frontend: `make frontend`
 3. Click **"Importer un CSV"** in the sidebar
 4. Select the source, drop your file, click **Importer**
 5. The full pipeline runs automatically (ingestion + dbt)
 
-### Option B — Via the command line
+### Option B — Via the API
 
 ```bash
-# Copy your export under the canonical filename
-cp ~/Downloads/MusicBuddy*.csv data/raw/musicbuddy.csv
+curl -X POST http://localhost:8000/ingest/upload \
+  -F "source=musicbuddy" \
+  -F "file=@data/raw/musicbuddy.csv"
+```
 
-# Run the full pipeline
+### Option C — Via the command line
+
+```bash
+cp ~/Downloads/MusicBuddy*.csv data/raw/musicbuddy.csv
 set -a && source .env && set +a
 python -m ingestion.run_ingestion
 cd transform && dbt run && cd ..
@@ -180,58 +185,30 @@ Canonical filenames:
 | MovieBuddy | `data/raw/moviebuddy.csv` |
 | Letterboxd | `data/raw/letterboxd.csv` |
 
-### Option C — Via the API
-
-```bash
-curl -X POST http://localhost:8000/ingest/upload \
-  -F "source=letterboxd" \
-  -F "file=@/path/to/your/letterboxd.csv"
-```
-
-> ⚠️ The pipeline runs synchronously and can take 1–2 minutes for large datasets.
-> Run uvicorn with `--workers 4` to avoid blocking other requests during ingestion.
-
 ---
 
 ## Running locally
-
-### Start everything at once
-
-```bash
-make dev-all
-```
-
-Lance en parallèle : FastAPI (8000) · Vue (5173) · Chainlit (8080) · Evidence (3000).
-
-### Or service by service
 
 ```bash
 make api        # FastAPI backend      → http://localhost:8000
 make frontend   # Vue 3 frontend       → http://localhost:5173
 make agent      # Chainlit agent UI    → http://localhost:8080
-make dashboard  # Evidence.dev         → http://localhost:3000
+make stack      # API + agent + frontend in parallel
+make dev        # Full stack via Docker Compose
 ```
-
-> `make dashboard` syncs `data/warehouse.duckdb` into `dashboard/sources/tastebase/`
-> before starting the dev server. Run it after any pipeline refresh.
 
 API docs: `http://localhost:8000/docs`
 
 ---
 
-## Running with Docker
+## Running with Docker (local)
 
 ```bash
 cp .env.example .env   # fill in your values
 docker compose up
 ```
 
-| Service            | URL                     |
-| ------------------ | ----------------------- |
-| FastAPI            | `http://localhost:8000` |
-| Vue frontend       | `http://localhost:5173` |
-| Chainlit agent     | `http://localhost:8080` |
-| Evidence dashboard | `http://localhost:3000` |
+Uses the root `docker-compose.yml` (api + agent, ports exposed locally).
 
 ---
 
@@ -239,16 +216,19 @@ docker compose up
 
 ```
 tastebase/
-├── ingestion/       Python loaders (CSV + Spotify + Trakt → bronze)
-├── transform/       dbt-duckdb project (bronze → silver → gold)
-├── api/             FastAPI backend (single DuckDB access layer)
-├── frontend/        Vue 3 + Vite SPA
-├── agent/           LangGraph agent + Chainlit UI
-├── dashboard/       Evidence.dev read-only analytics
+├── ingestion/              Python loaders (CSV + Spotify + Trakt → bronze)
+├── transform/              dbt-duckdb project (bronze → silver → gold)
+├── api/                    FastAPI backend (single DuckDB access layer)
+├── frontend/               Vue 3 + Vite SPA (browse, rate, insights)
+├── agent/                  LangGraph agent + Chainlit UI
 ├── data/
-│   ├── raw/         CSV exports (gitignored)
-│   └── warehouse.duckdb  (gitignored)
-└── docs/            Extended documentation
+│   ├── raw/                CSV exports (gitignored)
+│   ├── tmp/                Temp db during ingestion (gitignored)
+│   └── warehouse.duckdb    (gitignored)
+├── docker-compose.yml          Local dev (api + agent)
+├── docker-compose.api.yml      Coolify: tastebase-api
+├── docker-compose.agent.yml    Coolify: tastebase-agent
+└── docs/                   Extended documentation
 ```
 
 Full annotated tree: [`STRUCTURE.md`](STRUCTURE.md)
@@ -260,9 +240,9 @@ Full annotated tree: [`STRUCTURE.md`](STRUCTURE.md)
 | Area                      | Description                                                                                                                        |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | **Anime detection**       | MovieBuddy exports TMDB genres ("Animation", not "Anime"). `stg_anime` returns 0 rows until a better signal is added. See DEC-019. |
-| **Spotify rate limiting** | Spotify enforces ~23h extended rate limits. Ingestion skips Spotify gracefully when rate-limited; other sources are unaffected.    |
-| **Synchronous pipeline**  | CSV upload triggers the full pipeline synchronously. Run uvicorn with `--workers 4` to prevent blocking the frontend.              |
-| **User ratings**          | Ratings set via the UI survive `dbt run` rebuilds (`mart_ratings` uses incremental materialization). See DEC-030.                  |
+| **Spotify rate limiting** | Spotify enforces ~24h extended rate limits. Ingestion skips Spotify gracefully when rate-limited.                                  |
+| **Synchronous pipeline**  | CSV upload triggers the full pipeline synchronously. Run with `--workers 1` (DuckDB single-writer constraint).                     |
+| **Trakt token expiry**    | Trakt OAuth tokens expire every 90 days. Refresh via the OAuth flow using `urn:ietf:wg:oauth:2.0:oob` redirect URI.               |
 | **Hard delete**           | Deleting a dbt-managed item via the UI will cause it to reappear on the next pipeline run. By design — see DEC-029.                |
 
 ---
@@ -271,8 +251,9 @@ Full annotated tree: [`STRUCTURE.md`](STRUCTURE.md)
 
 | File                                             | Content                                        |
 | ------------------------------------------------ | ---------------------------------------------- |
+| [`CONTEXT.md`](CONTEXT.md)                       | Architecture, stack, deployment, decisions     |
 | [`STRUCTURE.md`](STRUCTURE.md)                   | Annotated folder/file tree                     |
-| [`DECISIONS.md`](DECISIONS.md)                   | Architectural decision log (DEC-001 → DEC-032) |
+| [`DECISIONS.md`](DECISIONS.md)                   | Architectural decision log (DEC-001 → DEC-039) |
 | [`NEXT_STEPS.md`](NEXT_STEPS.md)                 | Project roadmap                                |
 | [`docs/data-sources.md`](docs/data-sources.md)   | Export instructions per app                    |
 | [`docs/csv-templates.md`](docs/csv-templates.md) | Template column reference                      |

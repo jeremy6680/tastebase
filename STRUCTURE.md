@@ -10,15 +10,21 @@ tastebase/
 │
 ├── .env.example                  # Environment variable template (never commit .env)
 ├── .gitignore                    # Ignores data/raw/, .env, __pycache__, .dbt/, etc.
-├── CONTEXT.md                    # Source of truth: architecture, stack, design decisions
+├── .dockerignore                 # Excludes data/, .venv/, dashboard/, node_modules/ from Docker context
+├── CONTEXT.md                    # Source of truth: architecture, stack, deployment, decisions
 ├── DECISIONS.md                  # Log of architectural and technical decisions with rationale
 ├── NEXT_STEPS.md                 # Ordered roadmap; checked items = done, unchecked = todo
 ├── STRUCTURE.md                  # This file — annotated project structure
 ├── README.md                     # Public-facing project overview and quickstart
 ├── Makefile                      # Developer commands (install, ingest, transform, etc.)
-├── docker-compose.yml            # Defines api, agent, and dashboard services
-├── Dockerfile                    # Multi-stage build for the FastAPI + ingestion service
 ├── requirements.txt              # Python dependencies (pinned versions)
+│
+├── docker-compose.yml            # Local dev: api + agent (ports exposed, bind mounts)
+├── docker-compose.api.yml        # Coolify production: tastebase-api (FastAPI + DuckDB volume)
+├── docker-compose.agent.yml      # Coolify production: tastebase-agent (Chainlit, no volume)
+│                                 # Both files are at repo root — Coolify requires this for
+│                                 # context: . to resolve correctly in its build environment
+├── Dockerfile                    # Multi-stage build (builder + runtime) for FastAPI + agent
 │
 ├── data/
 │   ├── raw/                      # [GITIGNORED] User-supplied CSV exports
@@ -27,135 +33,133 @@ tastebase/
 │   │   ├── goodreads.csv         # Goodreads export (books + manga)
 │   │   ├── moviebuddy.csv        # MovieBuddy export (movies + anime)
 │   │   └── letterboxd.csv        # Letterboxd export (movies)
+│   ├── tmp/                      # [GITIGNORED] Temporary DuckDB during ingestion pipeline
+│   │   └── warehouse.duckdb      # Written by ingestion subprocess; replaces main db on success
 │   ├── templates/                # CSV templates for users without Buddy+/Goodreads/Letterboxd
-│   │   ├── template_music.csv    # Standard columns for music entries
-│   │   ├── template_books.csv    # Standard columns for book entries
-│   │   ├── template_manga.csv    # Standard columns for manga entries
-│   │   ├── template_movies.csv   # Standard columns for movie entries
-│   │   ├── template_series.csv   # Standard columns for series entries
-│   │   └── template_anime.csv    # Standard columns for anime entries
-│   └── warehouse.duckdb          # [GITIGNORED] Generated DuckDB database file
+│   │   ├── template_music.csv
+│   │   ├── template_books.csv
+│   │   ├── template_manga.csv
+│   │   ├── template_movies.csv
+│   │   ├── template_series.csv
+│   │   └── template_anime.csv
+│   └── warehouse.duckdb          # [GITIGNORED] Live DuckDB database (read by API + agent)
 │
 ├── ingestion/                    # Python ingestion layer (CSV + API → DuckDB bronze)
 │   ├── __init__.py
 │   ├── base_loader.py            # Abstract base class for CSV loaders; defines load() interface
-│   ├── base_api_client.py        # Abstract base class for API clients (separate from BaseLoader)
+│   ├── base_api_client.py        # Abstract base class for API clients (audit columns, load())
 │   ├── csv/                      # One loader per CSV source
 │   │   ├── __init__.py
-│   │   ├── musicbuddy_loader.py  # Parses musicbuddy.csv → raw_musicbuddy table
-│   │   ├── bookbuddy_loader.py   # Parses bookbuddy.csv → raw_bookbuddy table
-│   │   ├── goodreads_loader.py   # Parses goodreads.csv → raw_goodreads table
-│   │   ├── moviebuddy_loader.py  # Parses moviebuddy.csv → raw_moviebuddy table
-│   │   ├── letterboxd_loader.py  # Parses letterboxd.csv → raw_letterboxd table
+│   │   ├── musicbuddy_loader.py
+│   │   ├── bookbuddy_loader.py
+│   │   ├── goodreads_loader.py
+│   │   ├── moviebuddy_loader.py
+│   │   ├── letterboxd_loader.py
 │   │   └── generic_loader.py     # Handles user-supplied template CSVs (any domain)
-│   ├── apis/                     # One client per external API
+│   ├── apis/
 │   │   ├── __init__.py
-│   │   ├── spotify_client.py     # Fetches saved albums, recently played, top items (30s timeout; Retry-After capped at 60s)
-│   │   └── trakt_client.py       # Fetches watched movies, watched shows, ratings (30s timeout)
+│   │   ├── spotify_client.py     # 30s timeout; Retry-After > 60s → skip gracefully
+│   │   └── trakt_client.py       # 30s timeout; tokens expire every 90 days
 │   └── run_ingestion.py          # Orchestrator: runs all loaders in dependency order
 │
 ├── transform/                    # dbt-duckdb project (medallion architecture)
-│   ├── dbt_project.yml           # dbt project config (name, version, model paths)
-│   ├── profiles.yml              # DuckDB connection profile (reads DUCKDB_PATH from env)
+│   ├── dbt_project.yml           # dbt project config
+│   ├── profiles.yml              # DuckDB connection (reads DUCKDB_PATH from env)
 │   ├── models/
 │   │   ├── bronze/               # Raw layer — one table per source, no transformation
-│   │   │   ├── raw_musicbuddy.sql    # Materializes raw_musicbuddy as table
-│   │   │   ├── raw_bookbuddy.sql     # Materializes raw_bookbuddy as table
-│   │   │   ├── raw_goodreads.sql     # Materializes raw_goodreads as table
-│   │   │   ├── raw_moviebuddy.sql    # Materializes raw_moviebuddy as table
-│   │   │   ├── raw_letterboxd.sql    # Materializes raw_letterboxd as table
-│   │   │   ├── raw_spotify.sql       # Materializes raw_spotify as table (pre_hook creates empty table if missing)
-│   │   │   └── raw_trakt.sql         # Materializes raw_trakt as table
+│   │   │   ├── raw_musicbuddy.sql
+│   │   │   ├── raw_bookbuddy.sql
+│   │   │   ├── raw_goodreads.sql
+│   │   │   ├── raw_moviebuddy.sql
+│   │   │   ├── raw_letterboxd.sql
+│   │   │   ├── raw_spotify.sql   # pre_hook creates empty table if Spotify not yet ingested
+│   │   │   └── raw_trakt.sql
 │   │   ├── silver/               # Staging layer — cleaned, typed, deduplicated, rated
-│   │   │   ├── stg_music.sql         # MusicBuddy (primary) + Spotify (enrichment)
-│   │   │   ├── stg_books.sql         # BookBuddy + Goodreads; includes manga detection
-│   │   │   ├── stg_movies.sql        # MovieBuddy + Letterboxd + Trakt; includes anime detection
-│   │   │   ├── stg_series.sql        # Trakt shows only; anime excluded
-│   │   │   └── stg_anime.sql         # MovieBuddy (TV Show + Anime genre) + Trakt anime
-│   │   └── gold/                 # Mart layer — analytical models for dashboard + agent
-│   │       ├── mart_unified_tastes.sql   # All domains unified into a single model
-│   │       ├── mart_ratings.sql          # Current rating per item — incremental to preserve user ratings
-│   │       ├── mart_rating_events.sql    # Append-only audit trail of rating changes
-│   │       ├── mart_top_rated.sql        # Top-rated items per domain (filterable)
+│   │   │   ├── stg_music.sql     # MusicBuddy (primary) + Spotify (enrichment)
+│   │   │   ├── stg_books.sql     # BookBuddy + Goodreads; manga detection
+│   │   │   ├── stg_movies.sql    # MovieBuddy + Letterboxd + Trakt
+│   │   │   ├── stg_series.sql    # Trakt shows; anime excluded
+│   │   │   └── stg_anime.sql     # Anime only (known gap — DEC-019)
+│   │   └── gold/                 # Mart layer — analytical models for frontend + agent
+│   │       ├── mart_unified_tastes.sql   # All domains unified
+│   │       ├── mart_ratings.sql          # Current rating per item (incremental — DEC-030)
+│   │       ├── mart_rating_events.sql    # Append-only audit trail
+│   │       ├── mart_top_rated.sql        # Top-rated items per domain
 │   │       └── mart_taste_profile.sql    # Aggregate stats: genres, creators, decades
 │   └── seeds/
-│       ├── manga_publishers.csv      # Known manga publishers (Viz, Kodansha, etc.)
-│       └── domain_mapping.csv        # Category → domain override (e.g. "BD" → manga)
+│       ├── manga_publishers.csv          # Known manga publishers for detection
+│       └── domain_mapping.csv            # Category → domain override map
 │
 ├── agent/                        # LangGraph conversational agent
 │   ├── __init__.py
-│   ├── tools/                    # Individual LangGraph tools (called by the agent)
+│   ├── tools/
 │   │   ├── __init__.py
 │   │   ├── sql_tool.py           # Natural language → SQL → DuckDB → formatted result
-│   │   ├── rating_tool.py        # Add or update a rating via the FastAPI endpoint
+│   │   ├── rating_tool.py        # Add/update rating (search + submit, two steps)
 │   │   └── recommend_tool.py     # Cross-domain recommendations based on taste profile
-│   ├── graph.py                  # LangGraph graph definition (nodes, edges, state)
+│   ├── graph.py                  # LangGraph graph (nodes, edges, state, memory)
 │   ├── prompts.py                # System prompts in French and English
-│   └── app.py                    # Chainlit app entry point (mounts the LangGraph agent)
+│   └── app.py                    # Chainlit entry point (sys.path fix at top — DEC-024)
 │
 ├── api/                          # FastAPI backend (the only layer that touches DuckDB)
 │   ├── __init__.py
 │   ├── main.py                   # FastAPI app: CORS, lifespan, router registration
-│   ├── dependencies.py           # get_db: per-request DuckDB connection via Depends
+│   │                             # Lifespan skips ensure_table if warehouse.duckdb missing (DEC-036)
+│   │                             # CORS reads FRONTEND_URL + TASTEBASE_AGENT_URL in production
+│   ├── dependencies.py           # get_db (read_only=True) + get_db_write (read_only=False)
+│   │                             # Split to avoid DuckDB write lock during ingestion (DEC-037)
 │   ├── routers/
 │   │   ├── items.py              # GET/POST/PATCH/DELETE taste items
-│   │   ├── ratings.py            # POST rating → inserts into mart_ratings + rating_events
-│   │   ├── categories.py         # GET/POST per-item category, POST /categories/batch
-│   │   ├── ingestion.py          # POST /ingest (pipeline trigger), POST /ingest/upload (CSV upload), GET /ingest/sources
-│   │   └── stats.py              # GET endpoints for dashboard widgets (counts, top lists)
+│   │   ├── ratings.py            # POST rating (get_db_write), GET rating/history (get_db)
+│   │   ├── categories.py         # GET/POST per-item category (get_db_write for writes)
+│   │   ├── ingestion.py          # POST /ingest (writes to data/tmp/warehouse.duckdb — DEC-038)
+│   │   └── stats.py              # GET endpoints for Insights charts (counts, top lists, profile)
 │   └── schemas/
-│       ├── item.py               # Pydantic models: TasteItem, TasteItemCreate, etc.
-│       ├── rating.py             # Pydantic models: Rating, RatingCreate, RatingEvent
-│       └── category.py           # Pydantic models: CategoryUpsert, CategoryBatch, Category
+│       ├── item.py               # Pydantic: TasteItem, TasteItemCreate, PaginatedItems
+│       ├── rating.py             # Pydantic: Rating, RatingCreate, RatingEvent
+│       └── category.py           # Pydantic: CategoryUpsert, CategoryBatch, Category
 │
-├── frontend/                     # Vue 3 + Vite single-page application
-│   ├── index.html                # SPA entry point
-│   ├── vite.config.js            # Vite config: Vue plugin, SCSS injection, dev proxy → :8000
-│   ├── package.json
+├── frontend/                     # Vue 3 + Vite single-page application (deployed on Netlify)
+│   ├── index.html
+│   ├── vite.config.js            # Vue plugin, SCSS injection via import.meta.url, dev proxy → :8000
+│   ├── package.json              # chart.js, vue-chartjs, vue-router, vue-i18n, axios, sass
+│   ├── netlify.toml              # Netlify build config: base=frontend, publish=dist, SPA redirect
 │   └── src/
 │       ├── main.js               # App bootstrap: Vue, vue-router, vue-i18n
-│       ├── App.vue               # Root component: AppSidebar + RouterView layout
+│       ├── App.vue               # Root: AppSidebar + RouterView layout
 │       ├── api/                  # Thin Axios modules — one per FastAPI router
-│       │   ├── client.js         # Axios instance (baseURL /api, timeout 30s, error normalization)
-│       │   ├── items.js          # fetchItems, fetchItem, createItem, deleteItem
-│       │   ├── ratings.js        # fetchRating, upsertRating
-│       │   ├── categories.js     # fetchCategory, upsertCategory, batchUpsertCategories
-│       │   ├── stats.js          # fetchCounts, fetchRecent, fetchTasteProfile
-│       │   └── ingestion.js      # fetchSources, uploadCsv (timeout=0 for long pipeline runs)
+│       │   ├── client.js         # Axios instance (baseURL VITE_API_BASE_URL, timeout 30s)
+│       │   ├── items.js
+│       │   ├── ratings.js
+│       │   ├── categories.js
+│       │   ├── stats.js          # fetchCounts, fetchRecent, fetchTasteProfile, parseTasteProfile
+│       │   └── ingestion.js
 │       ├── config/
 │       │   ├── domains.js        # Domain metadata: key, label, icon, color, route
 │       │   └── categories.js     # Full genre/sub-genre taxonomy per domain
 │       ├── i18n/
-│       │   ├── fr.json           # French UI strings (default language)
-│       │   └── en.json           # English UI strings
+│       │   ├── fr.json           # French UI strings (default) — includes insights.* keys
+│       │   └── en.json           # English UI strings — includes insights.* keys
 │       ├── router/
-│       │   └── index.js          # Vue Router: one route per domain + home
+│       │   └── index.js          # Routes: home, 6 domain views, /insights
 │       ├── views/
 │       │   ├── HomeView.vue      # Domain cards grid with item + rated counts
-│       │   └── ItemBrowser.vue   # Paginated browse grid with FilterBar
+│       │   ├── InsightsView.vue  # KPI strip + 4 Chart.js visualisations
+│       │   └── [Domain]View.vue  # Per-domain paginated browse (MusicView, BooksView, etc.)
 │       └── components/
-│           ├── AppSidebar.vue        # Domain nav, language toggle, Import CSV button, collapse
-│           ├── FilterBar.vue         # Search, rating chips, decade chips, genre selects, sort
-│           ├── ItemCard.vue          # Title, creator, year, star rating, category badge
-│           ├── StarRating.vue        # Read-only + interactive star widget
-│           ├── CategorySelector.vue  # Chained genre/sub-genre selects per domain
-│           ├── BatchCategoryBar.vue  # Multi-select batch category assignment
-│           ├── AddItemModal.vue      # Manual item creation form
-│           └── UploadModal.vue       # CSV drag-and-drop upload: source select, progress, pipeline logs
-│
-├── dashboard/                    # Evidence.dev static dashboard
-│   ├── sources/
-│   │   └── tastebase/
-│   │       ├── connection.yaml       # DuckDB connection config (read_only: true)
-│   │       └── warehouse.duckdb      # [GITIGNORED] Physical copy of data/warehouse.duckdb
-│   └── pages/
-│       ├── index.md              # Overview: counts per domain, recently added
-│       ├── music.md              # Music: top albums, genres, artists
-│       ├── books.md              # Books: top rated, authors, languages
-│       ├── manga.md              # Manga: top rated, publishers, volumes
-│       ├── movies.md             # Movies: top rated, directors, decades
-│       ├── series.md             # Series: top rated, networks, genres
-│       └── anime.md              # Anime: top rated, studios, seasons (guarded — DEC-019)
+│           ├── AppSidebar.vue        # Nav: domains, Insights (internal), Agent (external)
+│           ├── FilterBar.vue
+│           ├── ItemCard.vue
+│           ├── StarRating.vue
+│           ├── CategorySelector.vue
+│           ├── BatchCategoryBar.vue
+│           ├── AddItemModal.vue
+│           ├── UploadModal.vue
+│           └── charts/               # Chart.js components (vue-chartjs wrappers)
+│               ├── DomainBreakdownChart.vue   # Doughnut: items per domain
+│               ├── RatingDistributionChart.vue # Bar: ratings 1–5 per domain
+│               ├── DecadesChart.vue            # Stacked bar: items by decade
+│               └── TopCreatorsChart.vue        # Horizontal bar: top creators (filterable)
 │
 ├── tests/                        # pytest test suite
 │   ├── ingestion/
@@ -164,50 +168,49 @@ tastebase/
 │   │   ├── test_goodreads_loader.py
 │   │   ├── test_moviebuddy_loader.py
 │   │   ├── test_letterboxd_loader.py
-│   │   ├── test_spotify_client.py    # Uses mocked HTTP responses
-│   │   └── test_trakt_client.py      # Uses mocked HTTP responses
+│   │   ├── test_spotify_client.py    # Mocked HTTP responses
+│   │   └── test_trakt_client.py      # Mocked HTTP responses
 │   └── api/
 │       ├── test_items.py
 │       ├── test_ratings.py
 │       └── test_stats.py
 │
 └── docs/
-    ├── data-sources.md           # Step-by-step export instructions per app
+    ├── data-sources.md           # Export instructions per app + Trakt OAuth refresh guide
     ├── csv-templates.md          # Column reference for each custom template
     ├── deployment.md             # Coolify + Hetzner VPS setup guide
-    └── contributing.md           # How to contribute (fork, branch, PR conventions)
+    └── contributing.md           # How to contribute
 ```
 
 ---
 
 ## Layer responsibilities
 
-| Layer  | Prefix  | Materialization | Responsibility                                   |
-| ------ | ------- | --------------- | ------------------------------------------------ |
-| Bronze | `raw_`  | table           | Raw data as-is; never modified after ingestion   |
-| Silver | `stg_`  | view            | Clean, typed, domain-tagged, deduplicated, rated |
-| Gold   | `mart_` | table / incremental | Analytical marts for dashboard widgets and agent |
-
-## Key data flow
-
-```
-CSV files / APIs
-    → ingestion/ (Python loaders)
-    → DuckDB bronze (raw_ tables)
-    → dbt silver (stg_ views)
-    → dbt gold (mart_ tables)
-    → FastAPI (api/)          ← frontend reads/writes here
-    → LangGraph agent (agent/) ← queries gold only
-    → Evidence.dev dashboard  ← reads gold directly via DuckDB
-```
+| Layer  | Prefix  | Materialization     | Responsibility                                   |
+| ------ | ------- | ------------------- | ------------------------------------------------ |
+| Bronze | `raw_`  | table               | Raw data as-is; never modified after ingestion   |
+| Silver | `stg_`  | view                | Clean, typed, domain-tagged, deduplicated, rated |
+| Gold   | `mart_` | table / incremental | Analytical marts for frontend widgets and agent  |
 
 ## Satellite tables (outside dbt DAG)
 
-These tables live in `main_gold` but are managed entirely by FastAPI — `dbt run` never
-touches them. They survive all pipeline rebuilds.
+These tables live in `main_gold` but are managed by FastAPI — `dbt run` never touches them.
 
-| Table                  | Created by          | Purpose                              |
-| ---------------------- | ------------------- | ------------------------------------ |
-| `mart_ratings`         | dbt (incremental)   | Current rating per item — user ratings preserved across runs |
-| `mart_rating_events`   | dbt (table)         | Append-only rating audit trail       |
-| `mart_item_categories` | FastAPI lifespan    | User-assigned genre/sub_genre per item |
+| Table                  | Created by          | Purpose                                              |
+| ---------------------- | ------------------- | ---------------------------------------------------- |
+| `mart_ratings`         | dbt (incremental)   | Current rating per item — user ratings preserved     |
+| `mart_rating_events`   | dbt (table)         | Append-only rating audit trail                       |
+| `mart_item_categories` | FastAPI lifespan    | User-assigned genre/sub_genre per item               |
+
+## Ingestion isolation pattern
+
+```
+POST /ingest/upload
+    → save CSV to data/raw/<canonical>.csv
+    → subprocess: run_ingestion.py (DUCKDB_PATH=data/tmp/warehouse.duckdb)
+    → subprocess: dbt run         (DUCKDB_PATH=data/tmp/warehouse.duckdb)
+    → on success: shutil.move(tmp → data/warehouse.duckdb)
+    → API's read-only connections to warehouse.duckdb are never blocked
+```
+
+See DEC-037, DEC-038, DEC-039.

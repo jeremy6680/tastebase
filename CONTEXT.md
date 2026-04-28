@@ -1,32 +1,39 @@
 # CONTEXT.md — TasteBase
 
-> **Personal AI-powered taste warehouse** — A full-stack data engineering project that centralizes a user's cultural preferences (music, books, manga, movies, series, anime) into a DuckDB warehouse, exposes them through a dashboard, and makes them queryable via a LangGraph AI agent.
+> **Personal AI-powered taste warehouse** — A full-stack data engineering project that
+> centralizes a user's cultural preferences (music, books, manga, movies, series, anime)
+> into a DuckDB warehouse, exposes them through a Vue 3 frontend, and makes them queryable
+> via a LangGraph conversational agent.
 
 ---
 
 ## Project Overview
 
-**Name:** TasteBase  
-**Repository:** https://github.com/jeremy6680/tastebase (public, initially private)  
-**Author:** Jeremy Marchandeau  
-**Blog:** web2data.jeremymarchandeau.com  
-**Deployment:** Coolify + Hetzner VPS  
-**Status:** In development
+**Name:** TasteBase
+**Repository:** https://github.com/jeremy6680/tastebase (public)
+**Author:** Jeremy Marchandeau
+**Blog:** web2data.jeremymarchandeau.com
+**Status:** Deployed in production
+
+### Production URLs
+
+| Service         | URL                                                   |
+| --------------- | ----------------------------------------------------- |
+| Frontend (Vue)  | https://tastebase.jeremymarchandeau.com               |
+| API (FastAPI)   | https://api.tastebase.jeremymarchandeau.com           |
+| Agent (Chainlit)| https://agent.tastebase.jeremymarchandeau.com         |
+| API health      | https://api.tastebase.jeremymarchandeau.com/health    |
+| API docs        | https://api.tastebase.jeremymarchandeau.com/docs      |
 
 ### What it does
 
-1. Ingests cultural taste data from multiple sources (CSV exports from Buddy+ apps, Goodreads, Letterboxd, Spotify API, Trakt.tv API)
-2. Stores everything in a local DuckDB warehouse using a medallion architecture (bronze/silver/gold)
+1. Ingests cultural taste data from multiple sources (CSV exports from Buddy+ apps,
+   Goodreads, Letterboxd, Spotify API, Trakt.tv API)
+2. Stores everything in DuckDB using a medallion architecture (bronze/silver/gold)
 3. Deduplicates items across sources using canonical IDs (ISBN, IMDB, TMDB, Discogs)
-4. Exposes a web UI (Streamlit or Chainlit) for browsing, filtering, sorting, and rating items (1–5 stars)
-5. Powers a LangGraph AI agent that answers natural-language questions and generates cross-domain recommendations
-
-### Why it exists
-
-- Portfolio project demonstrating analytics engineering + AI engineering skills
-- Personal tool replacing multiple fragmented apps with a single queryable source of truth
-- Open-source template others can adapt for their own taste data
-- Content for a Web2Data blog series
+4. Exposes a Vue 3 web UI for browsing, filtering, sorting, and rating items (1–5 stars)
+5. Powers a LangGraph AI agent that answers natural-language questions
+6. Visualises taste analytics in an Insights section (Chart.js, embedded in the frontend)
 
 ---
 
@@ -37,9 +44,11 @@ data/raw/           ← CSV exports (gitignored, user-supplied)
 ingestion/          ← Python scripts: CSV loaders + API clients (Spotify, Trakt)
 transform/          ← dbt-duckdb project (bronze → silver → gold)
 agent/              ← LangGraph agent with SQL, rating, and recommendation tools
-dashboard/          ← Evidence.dev (or Streamlit) visualization
-app/                ← Main web application (FastAPI backend + frontend)
-docker/             ← Dockerfile + docker-compose for Coolify deployment
+api/                ← FastAPI backend (single DuckDB access layer)
+frontend/           ← Vue 3 + Vite SPA (browse + rate + insights)
+docker-compose.yml          ← Local dev: api + agent
+docker-compose.api.yml      ← Coolify production: tastebase-api
+docker-compose.agent.yml    ← Coolify production: tastebase-agent
 docs/               ← Project documentation
 ```
 
@@ -53,10 +62,49 @@ docs/               ← Project documentation
    Silver layer (cleaned, typed, domain-tagged, deduplicated)
       ↓ dbt models
    Gold layer (unified_tastes, ratings, aggregates, taste profile)
-      ↓                    ↓
- Evidence.dev          LangGraph Agent
- Dashboard             (Chainlit UI)
+           ↓
+      FastAPI (api/)
+      /   \
+   Vue 3   LangGraph Agent
+ frontend   (Chainlit UI)
 ```
+
+---
+
+## Deployment Architecture
+
+```
+Hetzner VPS (Coolify + Traefik)
+├── tastebase-api    FastAPI + DuckDB volume   → docker-compose.api.yml
+└── tastebase-agent  Chainlit + LangGraph      → docker-compose.agent.yml
+
+Netlify (static)
+└── tastebase-ui     Vue 3 frontend            → frontend/netlify.toml
+```
+
+**Key deployment rules:**
+- `docker-compose.api.yml` and `docker-compose.agent.yml` must be at the **repo root**
+  (Coolify resolves `context: .` from its internal working directory)
+- `args: {}` in the `build:` block prevents Coolify from injecting `--build-arg` for
+  all env vars, which would cause `docker buildx bake` to fail
+- `tastebase-agent` must set `API_BASE_URL=https://api.tastebase.jeremymarchandeau.com`
+  (the two Coolify apps are on isolated Docker networks — `http://api:8000` does not work)
+
+---
+
+## DuckDB Concurrency Model
+
+DuckDB supports only one writer at a time. The API and the ingestion pipeline share the
+same `warehouse.duckdb` file — to avoid lock conflicts:
+
+1. `get_db()` opens in `read_only=True` (all GET endpoints)
+2. `get_db_write()` opens in `read_only=False` (write endpoints only)
+3. The ingestion pipeline writes to `data/tmp/warehouse.duckdb` (isolated subdirectory,
+   same filename stem so dbt catalog name `warehouse` matches)
+4. On success, `data/tmp/warehouse.duckdb` atomically replaces `data/warehouse.duckdb`
+5. The lifespan `ensure_table` is skipped on first boot (file doesn't exist yet)
+
+See DEC-036, DEC-037, DEC-038, DEC-039.
 
 ---
 
@@ -64,83 +112,43 @@ docs/               ← Project documentation
 
 Six content domains, each with its own silver model:
 
-| Domain   | Sources                                      | Detection method                                           |
-| -------- | -------------------------------------------- | ---------------------------------------------------------- |
-| `music`  | MusicBuddy CSV, Spotify API                  | `Content Type = Album`                                     |
-| `book`   | BookBuddy CSV, Goodreads CSV                 | Category/Tags/Publisher heuristics                         |
-| `manga`  | BookBuddy CSV, Goodreads CSV                 | Keywords: manga/manhwa/bande dessinée + publisher list     |
-| `movie`  | MovieBuddy CSV, Letterboxd CSV, Trakt.tv API | `Content Type = Movie`, Trakt `type=movie`                 |
-| `series` | Trakt.tv API                                 | Trakt `type=show`, genre ≠ Anime                           |
-| `anime`  | MovieBuddy CSV, Trakt.tv API                 | Genre contains "Anime", or Trakt `type=show` + genre=Anime |
+| Domain   | Sources                                      | Detection method                                        |
+| -------- | -------------------------------------------- | ------------------------------------------------------- |
+| `music`  | MusicBuddy CSV, Spotify API                  | `Content Type = Album`                                  |
+| `book`   | BookBuddy CSV, Goodreads CSV                 | Category/Tags/Publisher heuristics                      |
+| `manga`  | BookBuddy CSV, Goodreads CSV                 | Keywords: manga/manhwa/bande dessinée + publisher list  |
+| `movie`  | MovieBuddy CSV, Letterboxd CSV, Trakt.tv API | `Content Type = Movie`, Trakt `type=movie`              |
+| `series` | Trakt.tv API                                 | Trakt `type=show`, genre ≠ Anime                        |
+| `anime`  | MovieBuddy CSV, Trakt.tv API                 | Genre contains "Anime" (known gap — see DEC-019)        |
 
 ---
 
 ## Source Schemas
 
 ### goodreads.csv
+Key columns: `Book Id`, `Title`, `Author`, `ISBN`, `ISBN13`, `My Rating` (0–5),
+`Year Published`, `Date Read`, `Date Added`, `Bookshelves`
 
-Key columns: `Book Id`, `Title`, `Author`, `ISBN`, `ISBN13`, `My Rating` (0–5), `Year Published`, `Date Read`, `Date Added`, `Bookshelves`, `Exclusive Shelf`
-
-- Rating: 0–5 integer (0 = unrated) → keep as-is, convert 0 to NULL
-- Domain detection: check `Bookshelves` for manga/bd/comic keywords
-
-### bookbuddy.csv (Kimico BookBuddy)
-
-Key columns: `Title`, `Author`, `ISBN`, `Rating` (0.0–5.0 float), `Year Published`, `Date Added`, `Tags`, `Category`, `Status`, `Genre`, `Publisher`
-
-- Rating: float 0.0–5.0 → ROUND(), 0.0 = NULL
-- Domain detection: `Category` or `Tags` for manga keywords, `Publisher` for known manga publishers
+### bookbuddy.csv
+Key columns: `Title`, `Author`, `ISBN`, `Rating` (0.0–5.0 float), `Tags`, `Category`,
+`Status`, `Genre`, `Publisher`
 
 ### letterboxd.csv
-
 Key columns: `Date`, `Name`, `Year`, `Letterboxd URI`, `Rating` (0.5–5.0 by 0.5)
 
-- Rating: 0.5–5.0 → ROUND() to nearest integer
-- Always `movie` domain
+### moviebuddy.csv
+Key columns: `Title`, `Content Type` (Movie/TV Show), `Genres`, `Release Year`,
+`IMDB ID`, `TMDB ID`, `Rating` (0.0–5.0 float), `Date Added`, `Status`
 
-### moviebuddy.csv (Kimico MovieBuddy)
-
-Key columns: `Title`, `Content Type` (Movie/TV Show), `Genres`, `Release Year`, `IMDB ID`, `TMDB ID`, `Rating` (0.0–5.0 float), `Date Added`, `Status`, `Directors`, `Cast`, `Summary`
-
-- Rating: float 0.0–5.0 → ROUND(), 0.0 = NULL
-- Domain: `Content Type = Movie` → movie, `Content Type = TV Show` → series or anime (check Genres)
-
-### musicbuddy.csv (Kimico MusicBuddy)
-
-Key columns: `Title`, `Artist`, `Release Year`, `Genres`, `Rating` (0.0–5.0 float), `Date Added`, `Discogs Release ID`, `UPC-EAN13`, `Content Type` (Album)
-
-- Rating: float 0.0–5.0 → ROUND(), 0.0 = NULL
-- Always `music` domain
+### musicbuddy.csv
+Key columns: `Title`, `Artist`, `Release Year`, `Genres`, `Rating` (0.0–5.0 float),
+`Date Added`, `Discogs Release ID`, `UPC-EAN13`, `Content Type` (Album)
 
 ### Spotify API
-
-Endpoints: recently played, saved albums, top artists, top tracks  
-No native rating → rating defaults to NULL (user assigns via app UI)
+Endpoints: recently played, saved albums, top artists, top tracks. No native rating.
 
 ### Trakt.tv API
-
-Endpoints: watched movies, watched shows, ratings
-
-- Rating: 1–10 integer → `CEIL(rating / 2.0)` to convert to 1–5
-- Domain detection: `type=movie` → movie, `type=show` + genre=Anime → anime, `type=show` → series
-
----
-
-## Deduplication Rules
-
-Priority order when the same item appears in multiple sources:
-
-1. Keep the entry **with a rating > 0** (or > 0.0)
-2. If both have ratings, keep the **higher rating** (user-supplied takes priority over imported)
-3. If neither has a rating, keep the **oldest entry** (earliest `date_added`)
-
-Matching keys by domain:
-
-| Domain             | Primary key | Fallback key                            |
-| ------------------ | ----------- | --------------------------------------- |
-| book/manga         | ISBN13      | ISBN → title + author (normalized)      |
-| movie/series/anime | IMDB ID     | TMDB ID → title + year                  |
-| music              | Discogs ID  | UPC-EAN13 → artist + title (normalized) |
+Endpoints: watched movies, watched shows, ratings. Rating 1–10 → `CEIL(rating / 2.0)`.
 
 ---
 
@@ -148,323 +156,139 @@ Matching keys by domain:
 
 - **Scale:** 1–5 stars (integers only)
 - **NULL** = unrated (never store 0)
-- **Source ratings** are imported and converted to 1–5
-- **User ratings** set via the app UI override imported ratings
-- **Rating history** is tracked in a separate `rating_events` table (audit trail)
+- **User ratings** set via the UI override imported ratings
+- **Rating history** tracked in `mart_rating_events` (append-only audit trail)
 
 ---
 
 ## Gold Layer Schema
 
-### `gold_unified_tastes`
+### `mart_unified_tastes`
+id (SHA256), domain, source, source_id, title, creator, year, genres, cover_url,
+external_ids (JSON), status, date_added, date_consumed, created_at, updated_at
 
-```sql
-id                VARCHAR PRIMARY KEY,  -- SHA256(domain + source + source_id)
-domain            VARCHAR NOT NULL,     -- music|book|manga|movie|series|anime
-source            VARCHAR NOT NULL,     -- musicbuddy|spotify|bookbuddy|goodreads|moviebuddy|letterboxd|trakt
-source_id         VARCHAR,             -- original ID in source system
-title             VARCHAR NOT NULL,
-creator           VARCHAR,             -- artist / author / director
-year              INTEGER,
-genres            VARCHAR[],           -- normalized array
-cover_url         VARCHAR,
-external_ids      JSON,                -- {imdb, tmdb, isbn13, discogs_id, spotify_id, trakt_id}
-status            VARCHAR,             -- owned|watched|read|wishlist|previously_owned|unread
-date_added        TIMESTAMP,
-date_consumed     TIMESTAMP,          -- date read/watched/listened
-created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-updated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-```
+### `mart_ratings` (incremental — user ratings survive dbt rebuilds)
+id, item_id, rating (1–5), source (imported|user), rated_at, notes
 
-### `gold_ratings`
+### `mart_rating_events` (append-only)
+id, item_id, old_rating, new_rating, changed_by, changed_at
 
-```sql
-id                VARCHAR PRIMARY KEY,
-item_id           VARCHAR REFERENCES gold_unified_tastes(id),
-rating            INTEGER CHECK (rating BETWEEN 1 AND 5),
-source            VARCHAR,             -- imported|user
-rated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-notes             VARCHAR
-```
-
-### `gold_rating_events` (audit trail)
-
-```sql
-id                VARCHAR PRIMARY KEY,
-item_id           VARCHAR,
-old_rating        INTEGER,
-new_rating        INTEGER,
-changed_by        VARCHAR DEFAULT 'user',
-changed_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-```
+### `mart_item_categories` (satellite, outside dbt DAG)
+item_id (PK), domain, genre, sub_genre, updated_at
 
 ---
 
 ## Tech Stack
 
-| Layer            | Technology              | Version |
-| ---------------- | ----------------------- | ------- |
-| Language         | Python                  | 3.11+   |
-| Warehouse        | DuckDB                  | latest  |
-| Transformation   | dbt-duckdb              | latest  |
-| API framework    | FastAPI                 | latest  |
-| Agent framework  | LangGraph               | latest  |
-| Chat UI          | Chainlit                | latest  |
-| Dashboard        | Evidence.dev            | latest  |
-| Containerization | Docker + docker-compose | —       |
-| Deployment       | Coolify on Hetzner VPS  | —       |
-| i18n             | FR (default) / EN       | —       |
-
----
-
-## Project Structure
-
-```
-tastebase/
-├── .env.example                  # Environment variables template (never commit .env)
-├── .gitignore
-├── README.md
-├── CONTEXT.md                    # This file
-├── Makefile                      # Developer commands
-├── docker-compose.yml
-├── Dockerfile
-│
-├── data/
-│   ├── raw/                      # User CSV exports (gitignored)
-│   │   ├── musicbuddy.csv
-│   │   ├── bookbuddy.csv
-│   │   ├── goodreads.csv
-│   │   ├── moviebuddy.csv
-│   │   └── letterboxd.csv
-│   ├── templates/                # CSV templates for users without Buddy+/Goodreads/Letterboxd
-│   │   ├── template_music.csv
-│   │   ├── template_books.csv
-│   │   ├── template_manga.csv
-│   │   ├── template_movies.csv
-│   │   ├── template_series.csv
-│   │   └── template_anime.csv
-│   └── warehouse.duckdb          # Generated database (gitignored)
-│
-├── ingestion/
-│   ├── __init__.py
-│   ├── base_loader.py            # Abstract base class for all loaders
-│   ├── csv/
-│   │   ├── __init__.py
-│   │   ├── musicbuddy_loader.py
-│   │   ├── bookbuddy_loader.py
-│   │   ├── goodreads_loader.py
-│   │   ├── moviebuddy_loader.py
-│   │   ├── letterboxd_loader.py
-│   │   └── generic_loader.py     # Handles user-supplied template CSVs
-│   ├── apis/
-│   │   ├── __init__.py
-│   │   ├── spotify_client.py
-│   │   └── trakt_client.py
-│   └── run_ingestion.py          # Orchestrator: runs all loaders
-│
-├── transform/                    # dbt project
-│   ├── dbt_project.yml
-│   ├── profiles.yml
-│   ├── models/
-│   │   ├── bronze/
-│   │   │   ├── bronze_musicbuddy.sql
-│   │   │   ├── bronze_bookbuddy.sql
-│   │   │   ├── bronze_goodreads.sql
-│   │   │   ├── bronze_moviebuddy.sql
-│   │   │   ├── bronze_letterboxd.sql
-│   │   │   ├── bronze_spotify.sql
-│   │   │   └── bronze_trakt.sql
-│   │   ├── silver/
-│   │   │   ├── silver_music.sql
-│   │   │   ├── silver_books.sql      # includes manga detection
-│   │   │   ├── silver_movies.sql     # includes anime detection
-│   │   │   └── silver_series.sql     # excludes anime
-│   │   └── gold/
-│   │       ├── gold_unified_tastes.sql
-│   │       ├── gold_ratings.sql
-│   │       ├── gold_rating_events.sql
-│   │       ├── gold_top_rated.sql
-│   │       └── gold_taste_profile.sql
-│   └── seeds/
-│       ├── manga_publishers.csv      # Known manga publishers for detection
-│       └── domain_mapping.csv        # Category → domain override map
-│
-├── agent/
-│   ├── __init__.py
-│   ├── tools/
-│   │   ├── __init__.py
-│   │   ├── sql_tool.py               # Natural language → DuckDB SQL
-│   │   ├── rating_tool.py            # Add/update ratings
-│   │   └── recommend_tool.py         # Cross-domain recommendations
-│   ├── graph.py                      # LangGraph agent definition
-│   ├── prompts.py                    # System prompts (FR/EN)
-│   └── app.py                        # Chainlit app entry point
-│
-├── api/
-│   ├── __init__.py
-│   ├── main.py                       # FastAPI app
-│   ├── routers/
-│   │   ├── items.py                  # CRUD for taste items
-│   │   ├── ratings.py                # Rating endpoints
-│   │   ├── ingestion.py              # Trigger re-ingestion via UI
-│   │   └── stats.py                  # Dashboard data
-│   └── schemas/
-│       ├── item.py
-│       └── rating.py
-│
-├── frontend/                         # Responsive web UI
-│   ├── index.html
-│   ├── assets/
-│   │   ├── css/
-│   │   └── js/
-│   └── i18n/
-│       ├── fr.json                   # French translations (default)
-│       └── en.json                   # English translations
-│
-└── docs/
-    ├── data-sources.md               # How to export from each supported app
-    ├── csv-templates.md              # Documentation for custom CSV templates
-    ├── deployment.md                 # Coolify + Hetzner setup guide
-    └── contributing.md
-```
-
----
-
-## CSV Templates (for users without Buddy+/Goodreads/Letterboxd)
-
-Standard column set for each domain. All templates share these common columns:
-
-```
-title, creator, year, genres, rating (1-5), status, date_added, notes
-```
-
-Domain-specific additions:
-
-| Domain | Extra columns                                |
-| ------ | -------------------------------------------- |
-| music  | artist, album_type (album/single/ep), label  |
-| book   | isbn, publisher, pages, language             |
-| manga  | isbn, publisher, volume, language            |
-| movie  | director, imdb_id, runtime_minutes, language |
-| series | network, seasons, imdb_id, language          |
-| anime  | studio, episodes, mal_id, language           |
-
----
-
-## Coding Conventions
-
-- **Language:** All code, comments, variable names, function names in **English**
-- **Style:** PEP 8 for Python, with type hints on all functions
-- **Documentation:** Docstrings on all classes and public functions
-- **Comments:** Inline comments for non-obvious logic
-- **Tests:** pytest for ingestion and transformation logic
-- **Secrets:** Never committed — use `.env` + `python-dotenv`
-- **Logging:** `logging` module, never `print()` in production code
-
----
-
-## Environment Variables
-
-```bash
-# .env.example
-
-# Spotify API
-SPOTIFY_CLIENT_ID=
-SPOTIFY_CLIENT_SECRET=
-SPOTIFY_REDIRECT_URI=http://localhost:8888/callback
-
-# Trakt.tv API
-TRAKT_CLIENT_ID=
-TRAKT_CLIENT_SECRET=
-TRAKT_ACCESS_TOKEN=
-
-# App
-APP_SECRET_KEY=
-APP_ENV=development        # development | production
-DEFAULT_LANGUAGE=fr        # fr | en
-
-# Database
-DUCKDB_PATH=data/warehouse.duckdb
-```
+| Layer            | Technology                     |
+| ---------------- | ------------------------------ |
+| Language         | Python 3.12                    |
+| Warehouse        | DuckDB                         |
+| Transformation   | dbt-duckdb                     |
+| API framework    | FastAPI                        |
+| Agent framework  | LangGraph                      |
+| Chat UI          | Chainlit                       |
+| Frontend         | Vue 3 + Vite + Chart.js        |
+| Containerization | Docker + docker-compose        |
+| Backend deploy   | Coolify on Hetzner VPS         |
+| Frontend deploy  | Netlify (static build)         |
+| i18n             | FR (default) / EN              |
 
 ---
 
 ## Developer Commands (Makefile)
 
 ```bash
-make install          # Install Python dependencies
-make ingest           # Run all ingestion scripts
-make transform        # Run dbt models (bronze → silver → gold)
-make pipeline         # ingest + transform (full refresh)
-make api              # Start FastAPI backend (port 8000)
-make agent            # Start Chainlit agent UI (port 8080)
-make frontend         # Start Vue frontend dev server (port 5173)
-make dashboard-sync   # Copy warehouse.duckdb to Evidence source folder
-make dashboard        # Sync warehouse + start Evidence dev server (port 3000)
-make stack            # Start API + agent + frontend in parallel
-make dev-all          # Start everything: API + agent + frontend + dashboard
-make dev              # Start full stack via Docker Compose (production-like)
-make test             # Run pytest
-make lint             # Run ruff + mypy
+make install      # Install Python dependencies
+make ingest       # Run all ingestion scripts
+make seed         # Load dbt seeds
+make transform    # Run dbt models (bronze → silver → gold)
+make pipeline     # ingest + seed + transform (full refresh)
+make api          # Start FastAPI backend (port 8000)
+make agent        # Start Chainlit agent UI (port 8080)
+make frontend     # Start Vue frontend dev server (port 5173)
+make stack        # Start API + agent + frontend in parallel
+make dev          # Start full stack via Docker Compose (production-like)
+make test         # Run pytest
+make lint         # Run ruff + mypy
 ```
 
 ---
 
-## Deployment
+## Environment Variables
 
-The app runs as Docker containers on a Hetzner VPS managed by Coolify.
+### Backend (.env at project root)
 
-**Services:**
+```bash
+# Database — must be absolute path
+DUCKDB_PATH=/absolute/path/to/data/warehouse.duckdb
 
-- `api`: FastAPI backend (port 8000)
-- `agent`: Chainlit chat interface (port 8080)
-- `dashboard`: Evidence.dev (port 3000)
+# App
+APP_ENV=development        # development | production
+APP_SECRET_KEY=
+DEFAULT_LANGUAGE=fr        # fr | en
+AGENT_MODEL=claude-sonnet-4-6
 
-**Data persistence:** DuckDB file mounted as a Docker volume.
+# LLM
+ANTHROPIC_API_KEY=
 
-**Update workflow:**
+# Spotify (enrichment only)
+SPOTIFY_CLIENT_ID=
+SPOTIFY_CLIENT_SECRET=
+SPOTIFY_ACCESS_TOKEN=
+SPOTIFY_REFRESH_TOKEN=
+SPOTIFY_REDIRECT_URI=urn:ietf:wg:oauth:2.0:oob
 
-1. User exports new CSV from Buddy+/Goodreads/Letterboxd
-2. Uploads CSV via the web UI (drag & drop)
-3. App triggers `run_ingestion.py` + `dbt run` in the background
-4. Gold layer refreshes automatically
-5. Agent and dashboard reflect updated data
+# Trakt.tv (tokens expire every 90 days — refresh via OAuth flow)
+TRAKT_CLIENT_ID=
+TRAKT_CLIENT_SECRET=
+TRAKT_ACCESS_TOKEN=
+TRAKT_REFRESH_TOKEN=
+
+# Cross-app URLs
+TASTEBASE_LIBRARY_URL=https://tastebase.jeremymarchandeau.com
+TASTEBASE_AGENT_URL=https://agent.tastebase.jeremymarchandeau.com
+TASTEBASE_DASHBOARD_URL=https://tastebase.jeremymarchandeau.com/insights
+
+# Production CORS (tastebase-api Coolify app)
+FRONTEND_URL=https://tastebase.jeremymarchandeau.com
+
+# Production agent (tastebase-agent Coolify app)
+API_BASE_URL=https://api.tastebase.jeremymarchandeau.com
+```
+
+### Frontend (Netlify env vars)
+
+```bash
+VITE_API_BASE_URL=https://api.tastebase.jeremymarchandeau.com
+VITE_AGENT_URL=https://agent.tastebase.jeremymarchandeau.com
+VITE_DASHBOARD_URL=https://tastebase.jeremymarchandeau.com/insights
+```
 
 ---
 
-## i18n Strategy
+## Ingestion Workflow
 
-- Default language: **French (FR)**
-- Supported: French, English
-- Translation files: `frontend/i18n/fr.json` and `frontend/i18n/en.json`
-- Agent prompts: available in both languages (`agent/prompts.py`)
-- Language toggle: persistent via localStorage / user preference
+1. User exports CSV from Buddy+/Goodreads/Letterboxd
+2. Uploads via the Vue UI (`UploadModal`) or via `curl POST /ingest/upload`
+3. API saves file to `data/raw/<canonical_name>.csv`
+4. API triggers `run_ingestion.py` in a subprocess (writes to `data/tmp/warehouse.duckdb`)
+5. API triggers `dbt run` in a subprocess (transforms `data/tmp/warehouse.duckdb`)
+6. On success: `data/tmp/warehouse.duckdb` atomically replaces `data/warehouse.duckdb`
+7. Gold layer refreshes; agent and frontend reflect updated data
 
 ---
 
 ## Key Design Decisions
 
-1. **DuckDB over PostgreSQL** — zero-infra, single file, sufficient for personal data volume, portable
-2. **dbt-duckdb over raw SQL** — lineage, testing, documentation, modular transformations
-3. **LangGraph over CrewAI** — fine-grained control over agent state, better for structured SQL queries
-4. **Chainlit for agent UI** — purpose-built for conversational AI, easier than building custom chat UI
-5. **Evidence.dev for dashboard** — markdown + SQL, dbt-native, generates static sites
-6. **CSV templates** — makes the app usable by anyone, not just Buddy+/Goodreads/Letterboxd users
-7. **Dedup at silver layer** — keeps bronze as immutable raw data, deduplication logic in version-controlled SQL
+See `DECISIONS.md` for full log. Summary of latest decisions:
 
----
-
-## Blog Series (Web2Data)
-
-This project will be documented in a multi-part series:
-
-1. Architecture overview — why a personal data warehouse?
-2. Ingestion — normalizing heterogeneous CSV sources
-3. dbt medallion architecture on personal data
-4. Deduplication strategies in SQL
-5. Building a LangGraph agent on top of DuckDB
-6. Deploying on Coolify + Hetzner
-7. Making it open source and multilingual
+- **DEC-035** — Evidence.dev removed; Insights integrated into Vue 3 (Chart.js); Coolify
+  split into two apps; frontend on Netlify
+- **DEC-036** — Lifespan skips `ensure_table` on first boot
+- **DEC-037** — `get_db()` read-only; `get_db_write()` for write endpoints
+- **DEC-038** — Ingestion writes to tmp db to avoid DuckDB write lock
+- **DEC-039** — Tmp db uses same filename stem (`warehouse`) for dbt catalog compatibility
 
 ---
 
@@ -473,6 +297,7 @@ This project will be documented in a multi-part series:
 - [dbt-duckdb docs](https://github.com/duckdb/dbt-duckdb)
 - [LangGraph docs](https://langchain-ai.github.io/langgraph/)
 - [Chainlit docs](https://docs.chainlit.io)
-- [Evidence.dev docs](https://docs.evidence.dev)
 - [Trakt.tv API](https://trakt.docs.apiary.io)
 - [Spotify Web API](https://developer.spotify.com/documentation/web-api)
+- [Vue 3 docs](https://vuejs.org)
+- [Chart.js docs](https://www.chartjs.org)
