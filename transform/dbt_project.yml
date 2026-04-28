@@ -20,6 +20,13 @@ clean-targets:
   - "target"
   - "dbt_packages"
 
+# Ensure satellite tables exist after every dbt run.
+# mart_item_categories is managed by FastAPI (not dbt), but must exist
+# before the API can serve /items/ — creating it here guarantees it
+# survives fresh deployments without requiring a manual step.
+on-run-end:
+  - "CREATE TABLE IF NOT EXISTS main_gold.mart_item_categories (item_id VARCHAR PRIMARY KEY, domain VARCHAR NOT NULL, genre VARCHAR NOT NULL, sub_genre VARCHAR, updated_at TIMESTAMPTZ NOT NULL)"
+
 models:
   tastebase:
     bronze:
