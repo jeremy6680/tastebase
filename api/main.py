@@ -64,17 +64,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
     else:
         logger.info("TasteBase API starting. DuckDB path: %s", db_path)
-        # Ensure satellite tables created outside the dbt pipeline exist.
-        # mart_item_categories stores user-assigned genre/sub_genre per item.
-        try:
-            import duckdb as _duckdb
-            _conn = _duckdb.connect(db_path, read_only=False)
-            _conn.execute("SET search_path = 'main_gold,main_silver,main_bronze,main'")
-            ensure_table(_conn)
-            _conn.close()
-            logger.info("mart_item_categories table ensured.")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not ensure mart_item_categories: %s", exc)
+        # Only ensure satellite tables if the database file already exists.
+        # On first boot (before ingestion), the file doesn't exist yet —
+        # trying to create it here would hold a write lock that blocks ingestion.
+        if os.path.exists(db_path):
+            try:
+                import duckdb as _duckdb
+                _conn = _duckdb.connect(db_path, read_only=False)
+                _conn.execute("SET search_path = 'main_gold,main_silver,main_bronze,main'")
+                ensure_table(_conn)
+                _conn.close()
+                logger.info("mart_item_categories table ensured.")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Could not ensure mart_item_categories: %s", exc)
+        else:
+            logger.info("Database file not found yet — skipping ensure_table (run ingestion first).")
 
     yield
 
