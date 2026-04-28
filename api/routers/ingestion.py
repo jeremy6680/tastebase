@@ -106,18 +106,29 @@ class UploadResult(BaseModel):
 def _run_pipeline() -> IngestionResult:
     """Run run_ingestion.py then dbt run in sequence.
 
-    Both commands inherit the current environment (including DUCKDB_PATH).
+    Stops the uvicorn worker's DuckDB connections before running by using
+    a temporary database path, then atomically replaces the main database.
 
     Returns:
-        IngestionResult: Return codes and combined stdout/stderr from both processes.
-
-    Raises:
-        HTTPException: 500 if either process binary is not found on PATH.
+        IngestionResult: Return codes and combined stdout/stderr.
     """
     env = os.environ.copy()
+    db_path = env.get("DUCKDB_PATH", "/app/data/warehouse.duckdb")
 
-    # Step 1: Python ingestion
-    logger.info("Starting ingestion: run_ingestion.py")
+    # Use a temporary path for the ingestion run to avoid lock conflicts
+    # with the running API process (PID 1 holds the lock on the main file).
+    tmp_db_path = db_path + ".tmp"
+    env["DUCKDB_PATH"] = tmp_db_path
+
+    # Remove stale temp file if it exists
+    if Path(tmp_db_path).exists():
+        Path(tmp_db_path).unlink()
+    wal_tmp = Path(tmp_db_path + ".wal")
+    if wal_tmp.exists():
+        wal_tmp.unlink()
+
+    # Step 1: Python ingestion (writes to tmp db)
+    logger.info("Starting ingestion into temp db: %s", tmp_db_path)
     try:
         ingestion_result = subprocess.run(
             ["python", "-m", "ingestion.run_ingestion"],
@@ -127,17 +138,11 @@ def _run_pipeline() -> IngestionResult:
             cwd=str(PROJECT_ROOT),
         )
     except FileNotFoundError as exc:
-        logger.error("Python not found: %s", exc)
-        raise HTTPException(
-            status_code=500, detail="Python interpreter not found."
-        ) from exc
+        raise HTTPException(status_code=500, detail="Python interpreter not found.") from exc
 
-    logger.info(
-        "Ingestion completed with returncode=%d", ingestion_result.returncode
-    )
+    logger.info("Ingestion completed with returncode=%d", ingestion_result.returncode)
 
-    # Step 2: dbt run
-    logger.info("Starting dbt run")
+    # Step 2: dbt run (reads/writes tmp db)
     try:
         dbt_result = subprocess.run(
             ["dbt", "run"],
@@ -147,12 +152,19 @@ def _run_pipeline() -> IngestionResult:
             cwd=str(TRANSFORM_DIR),
         )
     except FileNotFoundError as exc:
-        logger.error("dbt not found: %s", exc)
-        raise HTTPException(
-            status_code=500, detail="dbt command not found."
-        ) from exc
+        raise HTTPException(status_code=500, detail="dbt command not found.") from exc
 
     logger.info("dbt run completed with returncode=%d", dbt_result.returncode)
+
+    # Step 3: Atomically replace the main database with the temp one
+    # Only if both steps succeeded
+    if ingestion_result.returncode == 0 and dbt_result.returncode == 0:
+        logger.info("Replacing main database with temp database")
+        import shutil
+        shutil.move(tmp_db_path, db_path)
+        wal_src = Path(tmp_db_path + ".wal")
+        if wal_src.exists():
+            shutil.move(str(wal_src), db_path + ".wal")
 
     return IngestionResult(
         status="ok" if dbt_result.returncode == 0 else "partial_failure",
