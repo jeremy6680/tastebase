@@ -1,17 +1,15 @@
 # api/dependencies.py
 
 """
-FastAPI dependency: yields a DuckDB connection scoped to a single request.
+FastAPI dependencies: DuckDB connections scoped to a single request.
 
-Each request gets its own connection to avoid concurrent write conflicts.
-The connection is always closed after the request completes, whether or not
-an exception was raised.
+Two flavours:
+  get_db       — read-only connection (safe for concurrent requests)
+  get_db_write — read-write connection (used only by write endpoints)
 
-Schema resolution:
-  dbt materialises gold models into the `main_gold` schema (DuckDB prefixes
-  `main_` to every custom schema name).  The search_path is set to
-  `main_gold, main_silver, main_bronze, main` so that SQL queries in the
-  routers can reference table names without a schema prefix.
+DuckDB allows multiple concurrent readers but only one writer at a time.
+Using read-only connections for all read endpoints eliminates lock conflicts
+with the ingestion pipeline, which needs a write connection.
 """
 
 import logging
@@ -23,23 +21,20 @@ from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
-# DuckDB schema names produced by dbt (dbt prefixes `main_` to custom schemas)
 _SEARCH_PATH = "main_gold,main_silver,main_bronze,main"
 
 
-def get_db() -> Generator[duckdb.DuckDBPyConnection, None, None]:
-    """Yield a DuckDB connection for the duration of a single request.
+def _open_connection(read_only: bool) -> duckdb.DuckDBPyConnection:
+    """Open a DuckDB connection with the correct search_path.
 
-    Reads the database path from the DUCKDB_PATH environment variable.
-    Sets the search_path on every new connection so that router queries
-    can reference gold-layer tables without a schema prefix.
+    Args:
+        read_only: Whether to open in read-only mode.
 
-    Yields:
-        duckdb.DuckDBPyConnection: An open connection to the warehouse.
+    Returns:
+        duckdb.DuckDBPyConnection: Open connection.
 
     Raises:
-        HTTPException: 503 if DUCKDB_PATH is missing or the file cannot
-            be opened.
+        HTTPException: 503 if DUCKDB_PATH is missing or the file cannot be opened.
     """
     db_path = os.getenv("DUCKDB_PATH")
     if not db_path:
@@ -47,20 +42,51 @@ def get_db() -> Generator[duckdb.DuckDBPyConnection, None, None]:
             status_code=503,
             detail="DUCKDB_PATH is not set. Check your environment configuration.",
         )
-
-    conn: duckdb.DuckDBPyConnection | None = None
     try:
-        conn = duckdb.connect(db_path, read_only=False)
-        # Set search_path so unqualified table names resolve to the gold
-        # schema first, then silver, bronze, and finally the default schema.
+        conn = duckdb.connect(db_path, read_only=read_only)
         conn.execute(f"SET search_path = '{_SEARCH_PATH}'")
-        yield conn
+        return conn
     except duckdb.IOException as exc:
         logger.error("Failed to open DuckDB at %s: %s", db_path, exc)
         raise HTTPException(
             status_code=503,
             detail=f"Database unavailable: {exc}",
         ) from exc
+
+
+def get_db() -> Generator[duckdb.DuckDBPyConnection, None, None]:
+    """Yield a read-only DuckDB connection for the duration of a single request.
+
+    Read-only mode allows concurrent readers and does not block the ingestion
+    pipeline from acquiring a write lock.
+
+    Yields:
+        duckdb.DuckDBPyConnection: Read-only connection to the warehouse.
+
+    Raises:
+        HTTPException: 503 if DUCKDB_PATH is missing or the file cannot be opened.
+    """
+    conn = _open_connection(read_only=True)
+    try:
+        yield conn
     finally:
-        if conn is not None:
-            conn.close()
+        conn.close()
+
+
+def get_db_write() -> Generator[duckdb.DuckDBPyConnection, None, None]:
+    """Yield a read-write DuckDB connection for the duration of a single request.
+
+    Use only for endpoints that write to the database (ratings, categories).
+    Holds an exclusive write lock for the duration of the request.
+
+    Yields:
+        duckdb.DuckDBPyConnection: Read-write connection to the warehouse.
+
+    Raises:
+        HTTPException: 503 if DUCKDB_PATH is missing or the file cannot be opened.
+    """
+    conn = _open_connection(read_only=False)
+    try:
+        yield conn
+    finally:
+        conn.close()

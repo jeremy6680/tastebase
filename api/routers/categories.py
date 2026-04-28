@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.dependencies import get_db
+from api.dependencies import get_db, get_db_write
 from api.schemas.category import Category, CategoryBatch, CategoryUpsert
 
 logger = logging.getLogger(__name__)
@@ -99,7 +99,7 @@ def get_category(
 def upsert_category(
     item_id: str,
     payload: CategoryUpsert,
-    db: duckdb.DuckDBPyConnection = Depends(get_db),
+    db: duckdb.DuckDBPyConnection = Depends(get_db_write),
 ) -> Category:
     """Set or replace the genre/sub_genre for a taste item.
 
@@ -156,7 +156,7 @@ def upsert_category(
 @batch_router.post("/batch", response_model=list[Category])
 def batch_upsert_categories(
     payload: CategoryBatch,
-    db: duckdb.DuckDBPyConnection = Depends(get_db),
+    db: duckdb.DuckDBPyConnection = Depends(get_db_write),
 ) -> list[Category]:
     """Apply the same genre/sub_genre to multiple items in one request.
 

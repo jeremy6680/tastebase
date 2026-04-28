@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.dependencies import get_db
+from api.dependencies import get_db, get_db_write
 from api.schemas.rating import Rating, RatingCreate, RatingEvent
 
 logger = logging.getLogger(__name__)
@@ -74,7 +74,7 @@ def get_rating(
 def upsert_rating(
     item_id: str,
     payload: RatingCreate,
-    db: duckdb.DuckDBPyConnection = Depends(get_db),
+    db: duckdb.DuckDBPyConnection = Depends(get_db_write), 
 ) -> Rating:
     """Add or update the rating for a taste item.
 
