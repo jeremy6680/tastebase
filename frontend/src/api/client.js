@@ -9,6 +9,9 @@ const apiClient = axios.create({
     headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
+        // Write endpoints require authentication — key is set at build time via VITE_API_KEY.
+        // Read-only visitors will still see the library; only mutations will be blocked server-side.
+        ...(import.meta.env.VITE_API_KEY ? { 'X-API-Key': import.meta.env.VITE_API_KEY } : {}),
     },
 })
 

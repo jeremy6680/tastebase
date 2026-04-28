@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from api.dependencies import get_db
+from api.dependencies import get_db, verify_api_key
 from api.schemas.item import (
     PaginatedItems,
     TasteItem,
@@ -287,7 +287,7 @@ def get_item(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/", response_model=TasteItem, status_code=201)
+@router.post("/", response_model=TasteItem, status_code=201, dependencies=[Depends(verify_api_key)])
 def create_item(
     payload: TasteItemCreate,
     db: duckdb.DuckDBPyConnection = Depends(get_db),
@@ -375,7 +375,7 @@ def create_item(
 # ---------------------------------------------------------------------------
 
 
-@router.delete("/{item_id}", status_code=204)
+@router.delete("/{item_id}", status_code=204, dependencies=[Depends(verify_api_key)])
 def delete_item(
     item_id: str,
     db: duckdb.DuckDBPyConnection = Depends(get_db),
@@ -417,7 +417,7 @@ def delete_item(
 # ---------------------------------------------------------------------------
 
 
-@router.patch("/{item_id}", response_model=TasteItem)
+@router.patch("/{item_id}", response_model=TasteItem, dependencies=[Depends(verify_api_key)])
 def update_item(
     item_id: str,
     payload: TasteItemUpdate,

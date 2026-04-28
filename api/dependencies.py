@@ -17,11 +17,13 @@ import os
 from collections.abc import Generator
 
 import duckdb
-from fastapi import HTTPException
+from fastapi import HTTPException, Security, status
+from fastapi.security.api_key import APIKeyHeader
 
 logger = logging.getLogger(__name__)
 
 _SEARCH_PATH = "main_gold,main_silver,main_bronze,main"
+_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 def _open_connection(read_only: bool) -> duckdb.DuckDBPyConnection:
@@ -90,3 +92,34 @@ def get_db_write() -> Generator[duckdb.DuckDBPyConnection, None, None]:
         yield conn
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Authentication
+# ---------------------------------------------------------------------------
+
+
+def verify_api_key(api_key: str | None = Security(_api_key_header)) -> None:
+    """Verify the X-API-Key header for write endpoints.
+
+    Read endpoints are public. Write endpoints (POST, PATCH, DELETE) must
+    include this dependency to ensure only the owner can mutate data.
+
+    Args:
+        api_key: Value of the X-API-Key header, or None if absent.
+
+    Raises:
+        HTTPException: 401 if the key is missing or incorrect.
+        HTTPException: 503 if API_KEY env var is not configured.
+    """
+    expected = os.environ.get("API_KEY")
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="API_KEY is not configured on the server.",
+        )
+    if api_key != expected:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key.",
+        )

@@ -17,7 +17,9 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+
+from api.dependencies import verify_api_key
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -222,7 +224,7 @@ def list_sources() -> SourcesResponse:
     return SourcesResponse(sources=statuses)
 
 
-@router.post("/", response_model=IngestionResult)
+@router.post("/", response_model=IngestionResult, dependencies=[Depends(verify_api_key)])
 def trigger_ingestion() -> IngestionResult:
     """Run the full ingestion pipeline using CSV files already in data/raw/.
 
@@ -236,7 +238,7 @@ def trigger_ingestion() -> IngestionResult:
     return _run_pipeline()
 
 
-@router.post("/upload", response_model=UploadResult)
+@router.post("/upload", response_model=UploadResult, dependencies=[Depends(verify_api_key)])
 async def upload_and_ingest(
     source: str = Form(..., description="Source key: musicbuddy | bookbuddy | goodreads | moviebuddy | letterboxd"),
     file: UploadFile = File(..., description="CSV file to upload"),

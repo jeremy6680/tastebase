@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.dependencies import get_db, get_db_write
+from api.dependencies import get_db, get_db_write, verify_api_key
 from api.schemas.rating import Rating, RatingCreate, RatingEvent
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ def get_rating(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/{item_id}/ratings", response_model=Rating, status_code=201)
+@router.post("/{item_id}/ratings", response_model=Rating, status_code=201, dependencies=[Depends(verify_api_key)])
 def upsert_rating(
     item_id: str,
     payload: RatingCreate,
