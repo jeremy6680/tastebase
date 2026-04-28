@@ -148,7 +148,22 @@ def _run_pipeline() -> IngestionResult:
 
     logger.info("Ingestion completed with returncode=%d", ingestion_result.returncode)
 
-    # Step 2: dbt run (reads/writes tmp db)
+    # Step 2: dbt seed (loads manga_publishers, domain_mapping)
+    logger.info("Starting dbt seed")
+    try:
+        seed_result = subprocess.run(
+            ["dbt", "seed"],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=str(TRANSFORM_DIR),
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500, detail="dbt command not found.") from exc
+
+    logger.info("dbt seed completed with returncode=%d", seed_result.returncode)
+
+    # Step 3: dbt run
     logger.info("Starting dbt run")
     try:
         dbt_result = subprocess.run(
@@ -159,15 +174,10 @@ def _run_pipeline() -> IngestionResult:
             cwd=str(TRANSFORM_DIR),
         )
     except FileNotFoundError as exc:
-        logger.error("dbt not found: %s", exc)
-        raise HTTPException(
-            status_code=500, detail="dbt command not found."
-        ) from exc
-
-    logger.info("dbt run completed with returncode=%d", dbt_result.returncode)
+        raise HTTPException(status_code=500, detail="dbt command not found.") from exc
 
     # Step 3: Atomically replace the main database on success
-    if ingestion_result.returncode == 0 and dbt_result.returncode == 0:
+    if ingestion_result.returncode == 0 and seed_result.returncode == 0 and dbt_result.returncode == 0:
         logger.info("Replacing main database with temp database")
         shutil.move(tmp_db_path, db_path)
         wal_src = Path(tmp_db_path + ".wal")
@@ -179,7 +189,7 @@ def _run_pipeline() -> IngestionResult:
         status="ok" if dbt_result.returncode == 0 else "partial_failure",
         ingestion_stdout=ingestion_result.stdout + ingestion_result.stderr,
         ingestion_returncode=ingestion_result.returncode,
-        dbt_stdout=dbt_result.stdout + dbt_result.stderr,
+        dbt_stdout=seed_result.stdout + seed_result.stderr + dbt_result.stdout + dbt_result.stderr,
         dbt_returncode=dbt_result.returncode,
     )
 
